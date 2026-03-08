@@ -1,0 +1,4 @@
+Group,n,score_phq_M,score_phq_SD,score_gad_M,score_gad_SD,score_stai_t_M,score_stai_t_SD,positive_affect_start_M,positive_affect_start_SD,negative_affect_start_M,negative_affect_start_SD
+Minimal,20,2.6,1.47,2.95,3.14,37.75,11.61,36.05,6.39,11.85,2.23
+Mild,12,6.58,1.31,6.17,4.3,48.67,13.17,35.25,7.4,14.0,5.43
+Moderate-Severe,8,13.75,2.92,8.38,4.53,57.62,14.1,29.62,8.19,12.88,2.03

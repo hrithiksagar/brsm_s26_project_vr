@@ -1,0 +1,16 @@
+Dimension,Video,Name,Mean,SD,Median,Min,Max
+valence,V1,Abandoned Buildings,5.2,1.667,5.0,1,9
+valence,V2,Evening at Beach,6.525,1.754,6.0,3,9
+valence,V3,Campus,6.15,1.61,6.0,3,9
+valence,V4,The Nun (Horror),3.675,1.845,3.0,1,8
+valence,V5,Tahiti Surf,7.125,1.682,7.0,1,9
+arousal,V1,Abandoned Buildings,4.6,2.216,5.0,1,9
+arousal,V2,Evening at Beach,4.65,2.032,5.0,1,8
+arousal,V3,Campus,4.325,2.165,4.5,1,9
+arousal,V4,The Nun (Horror),5.95,1.679,6.0,2,9
+arousal,V5,Tahiti Surf,6.5,1.695,7.0,2,9
+immersion,V1,Abandoned Buildings,29.6,4.413,30.0,19,35
+immersion,V2,Evening at Beach,27.25,5.314,28.5,14,35
+immersion,V3,Campus,26.95,4.523,27.5,17,34
+immersion,V4,The Nun (Horror),19.85,5.438,20.0,10,29
+immersion,V5,Tahiti Surf,28.025,4.785,29.0,19,35

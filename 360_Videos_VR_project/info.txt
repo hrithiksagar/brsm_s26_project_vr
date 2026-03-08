@@ -1,0 +1,82 @@
+Mini Project (60 marks, 30% weightage)
+You will first participate in human behavioral experiments (at least 1.5-2 hrs
+worth of experiments). Then, by Feb 10, you will be provided with
+anonymized data from one of the experiments you took part in along with
+some sample questions (non-exhaustive, you are supposed to come up with
+more questions on your own) you can answer by applying statistical
+methods on those datasets. Note that machine learning methods will not be
+accepted. You have to primarily apply the methods taught in class with a few
+additional methods if needed. However, using chatGPT to come up with
+sophisticated analyses that no one understands or if you are unable to
+properly interpret the results of your analyses when asked (again indicating
+that you copy-pasted the output of AI without making an effort to really
+understand it) will attract a big 50% penalty. Therefore, we reserve the right
+to give a viva to any person/team that engages in such extreme genAI
+assistance with very little understanding of the statistical methods, their
+assumptions, their applicability to your data, and the appropriate
+interpretation of the results.
+The graded components are:
+1. Experiment participation – 10 marks (experiments will have vigilence
+checks, so you will lose 10 marks if you do not pay attention and do the
+task to the best of your ability).
+2. Report 1 – presenting visualization of variables in the data, descriptive
+statistics, and any other preliminary analysis results (both descriptive and
+inferential – with plots and statistics) - 10 marks.
+3. Presentation of report 1 – randomly selected teams (1 per
+experiment/dataset) who will receive a 1% bonus.
+4. Report 2 – update of the initial report with additional inferential statistical
+analyses using advanced methods such as ANOVA, regression, and GLM –
+20 marks.
+5. Final poster presentation (instead of class presentations); all teams - 10
+marks.
+Report 1 (~5-6 pages, single-spaced, font size 12) to be submitted by 10
+pm Feb 21, 2025. You will forfeit the 10 marks associated with report
+1 if you miss this deadline.
+Report 2 (~10-12 pages, single-spaced, font size 12) to be submitted by
+10 pm April 20, 2025. You will forfeit the 20 marks associated with
+report 2 if you miss this deadline.
+Both reports will be graded according to the same scheme (but half
+the marks for report 1):
+1. Introduction and explanation of the dataset, some background about
+the domain (you should do some research to understand the domain)
+– 2 marks
+2. Methods (the analysis you did must be clear from the methods section
+– this is where you describe HOW you analyzed the data) – 6 marks
+3. Results (make good figures, use statistics to make your points about
+what you present in the figures – this is where you describe WHAT you
+found by doing the analysis) – 8 marks
+4. Conclusion from the analyses above and plans for the next
+steps/future directions – 2 marks
+5. Formatting, citations, references – 2 marks
+Total 20 marks (10 for report 1)
+
+
+
+
+
+Sending some stuff from project to note:
+
+- Report 1 – presenting visualization of variables in the data, descriptive
+statistics, and any other preliminary analysis results (both descriptive and
+inferential – with plots and statistics) - 10 marks.
+- Presentation of report 1 – randomly selected teams (1 per
+experiment/dataset) who will receive a 1% bonus.
+- Note that machine learning methods will not be accepted. You have to primarily apply the methods taught in class with a few additional methods if needed.
+- ⁠Report 1 (~5-6 pages, single-spaced, font size 12) 
+
+
+Grading for report
+Both reports will be graded according to the same scheme (but half
+the marks for report 1):
+1. Introduction and explanation of the dataset, some background about
+the domain (you should do some research to understand the domain)
+– 2 marks
+2. Methods (the analysis you did must be clear from the methods section
+– this is where you describe HOW you analyzed the data) – 6 marks
+3. Results (make good figures, use statistics to make your points about
+what you present in the figures – this is where you describe WHAT you
+found by doing the analysis) – 8 marks
+4. Conclusion from the analyses above and plans for the next
+steps/future directions – 2 marks
+5. Formatting, citations, references – 2 marks
+Total 20 marks (10 for report 1)
