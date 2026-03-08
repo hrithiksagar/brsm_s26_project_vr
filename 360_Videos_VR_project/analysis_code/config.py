@@ -1,9 +1,7 @@
-# =============================================================================
 # config.py  —  Central configuration for all analysis scripts
-# =============================================================================
 import os
 
-# ── File Paths ────────────────────────────────────────────────────────────────
+# ── File Paths ────────────
 DATA_PATH     = "../data/data.xlsx"
 
 # Head-tracking CSVs organised in per-video sub-folders:
@@ -15,7 +13,7 @@ HEADTRACK_DIR = "../data/headtracking-data"
 OUTPUT_DIR    = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ── CSV Column Names ──────────────────────────────────────────────────────────
+# ── CSV Column Names ──────
 # Pre-computed per-frame columns present in every head-tracking CSV:
 #   Time               – seconds since session start
 #   RotationChangeY    – cumulative yaw (deg); positive = right
@@ -43,7 +41,7 @@ GROUP_COLORS = {
     "Moderate-Severe": "#F44336",
 }
 
-# ── Video Metadata ────────────────────────────────────────────────────────────
+# ── Video Metadata ────────
 VIDEO_NAMES = {
     1: "Abandoned Buildings",
     2: "Evening at Beach",
@@ -53,14 +51,14 @@ VIDEO_NAMES = {
 }
 VIDEO_COLORS = ["#5C85D6", "#56B4E9", "#009E73", "#D55E00", "#CC79A7"]
 
-# ── Questionnaire Columns ─────────────────────────────────────────────────────
+# ── Questionnaire Columns ─
 QUESTIONNAIRE_COLS = {
     "score_phq":    "PHQ-9",
     "score_gad":    "GAD-7",
     "score_stai_t": "STAI-T",
 }
 
-# ── Statistical Thresholds ────────────────────────────────────────────────────
+# ── Statistical Thresholds 
 ALPHA          = 0.05
 ZSCORE_THRESH  = 2.5
 IQR_MULTIPLIER = 1.5

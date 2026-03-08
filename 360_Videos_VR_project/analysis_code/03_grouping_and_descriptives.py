@@ -1,11 +1,11 @@
-# =============================================================================
+"""
 # 03_grouping_and_descriptives.py
 # PURPOSE : Assign PHQ-9 depression severity groups, compute full descriptive
 #           statistics per group, and save a summary CSV.
 # OUTPUT  : outputs/descriptive_stats.csv
 #           outputs/group_stats.csv
 # RUN     : python 03_grouping_and_descriptives.py
-# =============================================================================
+"""
 
 import pandas as pd
 import numpy as np
@@ -14,9 +14,7 @@ from config import DATA_PATH, OUTPUT_DIR, PHQ_GROUPS, GROUP_ORDER
 
 df = pd.read_excel(DATA_PATH)
 
-# ─────────────────────────────────────────────────────────────────────────────
 # 1. Assign depression groups
-# ─────────────────────────────────────────────────────────────────────────────
 def assign_phq_group(score):
     """
     Assigns a PHQ-9 severity label using validated cut-offs from
@@ -38,9 +36,7 @@ for g in GROUP_ORDER:
     print(f"  {g:<22}: n={n:>3}  ({pct:.1f}%)")
 print(f"  {'TOTAL':<22}: n={len(df)}")
 
-# ─────────────────────────────────────────────────────────────────────────────
 # 2. Full descriptive statistics (all participants)
-# ─────────────────────────────────────────────────────────────────────────────
 desc_cols = [
     "age", "score_phq", "score_gad", "score_stai_t",
     "positive_affect_start", "positive_affect_end",
@@ -75,9 +71,7 @@ print(desc_df.to_string())
 desc_df.to_csv(f"{OUTPUT_DIR}/descriptive_stats.csv")
 print(f"\n  Saved → {OUTPUT_DIR}/descriptive_stats.csv")
 
-# ─────────────────────────────────────────────────────────────────────────────
 # 3. Group-level descriptive statistics
-# ─────────────────────────────────────────────────────────────────────────────
 group_cols = ["score_phq", "score_gad", "score_stai_t",
               "positive_affect_start", "negative_affect_start"]
 
@@ -96,9 +90,7 @@ print(group_df.to_string(index=False))
 group_df.to_csv(f"{OUTPUT_DIR}/group_stats.csv", index=False)
 print(f"\n  Saved → {OUTPUT_DIR}/group_stats.csv")
 
-# ─────────────────────────────────────────────────────────────────────────────
 # 4. Per-video descriptive stats
-# ─────────────────────────────────────────────────────────────────────────────
 print("\n── Per-Video Descriptive Stats ──")
 print(f"  {'Video':<6} {'Valence M':>10} {'Val SD':>8} "
       f"{'Arousal M':>10} {'Aro SD':>8} {'Immersion M':>13} {'Imm SD':>8}")

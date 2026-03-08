@@ -27,7 +27,7 @@ def assign_phq_group(score):
 
 df["depression_group"] = df["score_phq"].apply(assign_phq_group)
 
-# ── Shared style ──────────────────────────────────────────────────────────────
+# ── Shared style ──────────
 plt.rcParams.update({
     "font.family":  "sans-serif",
     "font.size":    11,
@@ -153,9 +153,7 @@ path = f"{OUTPUT_DIR}/fig2_correlations.png"
 plt.savefig(path, dpi=150, bbox_inches="tight"); plt.close()
 print(f"  Saved → {path}")
 
-# ═════════════════════════════════════════════════════════════════════════════
 # FIGURE 3 — Per-video ratings
-# ═════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 3 ...")
 fig, axes = plt.subplots(1, 3, figsize=(14, 5))
 fig.suptitle("Figure 3: Per-Video Subjective Ratings (Valence, Arousal, Immersion)",
@@ -184,9 +182,7 @@ path = f"{OUTPUT_DIR}/fig3_video_ratings.png"
 plt.savefig(path, dpi=150, bbox_inches="tight"); plt.close()
 print(f"  Saved → {path}")
 
-# ═════════════════════════════════════════════════════════════════════════════
 # FIGURE 4 — PANAS mood shift + valence by group
-# ═════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 4 ...")
 fig, axes = plt.subplots(1, 3, figsize=(14, 5))
 fig.suptitle("Figure 4: Mood (PANAS) Shift & Valence Ratings by Depression Group",

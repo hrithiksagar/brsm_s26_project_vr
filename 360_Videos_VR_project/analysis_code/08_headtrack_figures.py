@@ -36,9 +36,7 @@ palette = GROUP_COLORS
 VIDEO_NICE = ["Abandoned\nBuildings", "Evening\nat Beach", "Campus",
               "The Nun\n(Horror)", "Tahiti\nSurf"]
 
-# ═════════════════════════════════════════════════════════════════════════════
 # FIGURE 5 — Scanning speed by depression group (boxplot per video)
-# ═════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 5 ...")
 fig, axes = plt.subplots(1, 5, figsize=(16, 5), sharey=False)
 fig.suptitle("Figure 5: Head Scanning Speed (deg/s) by Depression Group per Video",
@@ -67,9 +65,7 @@ path = f"{OUTPUT_DIR}/fig5_speed_by_group.png"
 plt.savefig(path, dpi=150, bbox_inches="tight"); plt.close()
 print(f"  Saved → {path}")
 
-# ═════════════════════════════════════════════════════════════════════════════
 # FIGURE 6 — Mean speed per video (bar) + breakdown by depression group
-# ═════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 6 ...")
 fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 fig.suptitle("Figure 6: Head Scanning Speed — Video and Group Overview",
@@ -106,9 +102,7 @@ path = f"{OUTPUT_DIR}/fig6_speed_by_video.png"
 plt.savefig(path, dpi=150, bbox_inches="tight"); plt.close()
 print(f"  Saved → {path}")
 
-# ═════════════════════════════════════════════════════════════════════════════
 # FIGURE 7 — PHQ-9 vs scanning speed scatter (one panel per video)
-# ═════════════════════════════════════════════════════════════════════════════
 print("Generating Figure 7 ...")
 fig, axes = plt.subplots(1, 5, figsize=(16, 4), sharey=False)
 fig.suptitle("Figure 7: PHQ-9 Score vs Head Scanning Speed per Video",

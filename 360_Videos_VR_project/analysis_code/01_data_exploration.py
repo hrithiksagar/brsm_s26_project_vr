@@ -1,26 +1,24 @@
-# =============================================================================
-# 01_data_exploration.py
-# PURPOSE : Load data.xlsx, print an overview of every column, check for
-#           missing values, and summarise the sample demographics.
-# OUTPUT  : Console printout (no figures saved)
-# RUN     : python 01_data_exploration.py
-# =============================================================================
-
+"""
+01_data_exploration.py
+PURPOSE : Load data.xlsx, print an overview of every column, check for
+          missing values, and summarise the sample demographics.
+OUTPUT  : Console printout (no figures saved)
+RUN     : python 01_data_exploration.py
+"""
 import pandas as pd
 import numpy as np
 from config import DATA_PATH, QUESTIONNAIRE_COLS
 
-# ── 1. Load ───────────────────────────────────────────────────────────────────
 df = pd.read_excel(DATA_PATH)
 print("=" * 65)
 print(f"Dataset loaded:  {df.shape[0]} rows  x  {df.shape[1]} columns")
 print("=" * 65)
 
-# ── 2. Column overview ────────────────────────────────────────────────────────
+# ── 2. Column overview 
 print("\n── Column names & dtypes ──")
 print(df.dtypes.to_string())
 
-# ── 3. Missing values ────────────────────────────────────────────────────────
+# ── 3. Missing values 
 missing = df.isnull().sum()
 missing = missing[missing > 0]
 print("\n── Missing values ──")
@@ -29,7 +27,7 @@ if missing.empty:
 else:
     print(missing.to_string())
 
-# ── 4. Demographics ──────────────────────────────────────────────────────────
+# ── 4. Demographics ──
 print("\n── Demographics ──")
 print(f"  N               : {len(df)}")
 print(f"  Age             : M={df['age'].mean():.2f}, SD={df['age'].std():.2f}, "
@@ -60,7 +58,7 @@ for i in range(1, 6):
     im = df[f'immersion_v{i}'].mean()
     print(f"  V{i:<5} {v:>10.2f} {a:>10.2f} {im:>12.2f}")
 
-# ── 7. PANAS snapshot ────────────────────────────────────────────────────────
+# ── 7. PANAS snapshot 
 print("\n── PANAS Mood (Pre vs Post VR) ──")
 for label, col in [("Positive Pre ", "positive_affect_start"),
                    ("Positive Post", "positive_affect_end"),

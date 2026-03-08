@@ -1,11 +1,11 @@
-# =============================================================================
-# 02_outliers_and_normality.py
-# PURPOSE : Test normality of all key variables (Shapiro-Wilk), detect
-#           outliers via IQR and z-score methods, and print a decision
-#           rationale for inclusion/exclusion.
-# OUTPUT  : Console printout
-# RUN     : python 02_outliers_and_normality.py
-# =============================================================================
+"""
+02_outliers_and_normality.py
+PURPOSE : Test normality of all key variables (Shapiro-Wilk), detect
+          outliers via IQR and z-score methods, and print a decision
+          rationale for inclusion/exclusion.
+OUTPUT  : Console printout
+RUN     : python 02_outliers_and_normality.py
+"""
 
 import pandas as pd
 import numpy as np
@@ -14,9 +14,7 @@ from config import DATA_PATH, QUESTIONNAIRE_COLS, ALPHA, ZSCORE_THRESH, IQR_MULT
 
 df = pd.read_excel(DATA_PATH)
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PART A: Shapiro-Wilk Normality Tests
-# ─────────────────────────────────────────────────────────────────────────────
 print("=" * 65)
 print("PART A: Shapiro-Wilk Normality Tests")
 print("=" * 65)
@@ -42,9 +40,7 @@ for col, label in test_cols.items():
 
 print("\n  * p < .05 → normality assumption violated → use non-parametric tests")
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PART B: Outlier Detection
-# ─────────────────────────────────────────────────────────────────────────────
 print("\n" + "=" * 65)
 print("PART B: Outlier Detection")
 print("=" * 65)
@@ -73,9 +69,7 @@ for col in outlier_cols:
     print(f"    Z-score    : {len(z_outliers)} outlier(s) (|z|>{ZSCORE_THRESH})  "
           f"→ scores: {sorted(z_outliers[col].tolist())}")
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PART C: Decision Rationale
-# ─────────────────────────────────────────────────────────────────────────────
 print("\n" + "=" * 65)
 print("PART C: Inclusion / Exclusion Decision")
 print("=" * 65)

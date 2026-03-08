@@ -51,9 +51,7 @@ def assign_group(score):
 
 df["depression_group"] = df["score_phq"].apply(assign_group)
 
-# =============================================================================
 # PART A: Parse CSVs → compute summary metrics
-# =============================================================================
 
 def load_csv(path):
     """Read one head-tracking CSV, skip the trailing summary row."""
@@ -125,9 +123,7 @@ speed_df = pd.DataFrame(records)
 speed_df.to_csv(f"{OUTPUT_DIR}/headtrack_summary.csv", index=False)
 print(f"\n  → Saved: {OUTPUT_DIR}/headtrack_summary.csv  ({len(speed_df)} rows)\n")
 
-# =============================================================================
 # PART B: Descriptive statistics per video
-# =============================================================================
 print("=" * 65)
 print("PART B: Descriptive Statistics — Yaw Speed per Video")
 print("=" * 65)
@@ -162,9 +158,7 @@ pd.DataFrame(group_rows).to_csv(
     f"{OUTPUT_DIR}/headtrack_group_stats.csv", index=False)
 print(f"\n  → Saved: {OUTPUT_DIR}/headtrack_group_stats.csv")
 
-# =============================================================================
 # PART C: Kruskal-Wallis — yaw speed across depression groups
-# =============================================================================
 print("\n" + "=" * 65)
 print("PART C: Kruskal-Wallis H — Yaw Speed by Depression Group")
 print("=" * 65)
@@ -184,9 +178,7 @@ for v in range(1, 6):
                      else "Mod-Sev >= Minimal")
         print(f"  V{v}: {VIDEO_NAMES[v]:<24} {H:>7.3f} {p:>9.4f}  {sig:>4}  {direction}")
 
-# =============================================================================
 # PART D: Spearman — PHQ-9 vs yaw speed
-# =============================================================================
 print("\n" + "=" * 65)
 print("PART D: Spearman Correlation — PHQ-9 vs Mean Yaw Speed")
 print("=" * 65)
@@ -202,9 +194,7 @@ for v in range(1, 6):
         sig = "***" if p < .001 else ("**" if p < .01 else ("*" if p < .05 else "ns"))
         print(f"  V{v}: {VIDEO_NAMES[v]:<24} {rho:>7.3f} {p:>9.4f}  {sig:>4}")
 
-# =============================================================================
 # PART E: Figure 5
-# =============================================================================
 print("\n" + "=" * 65)
 print("PART E: Generating Figure 5")
 print("=" * 65)

@@ -1,12 +1,12 @@
-# =============================================================================
-# 04_correlation_analysis.py
-# PURPOSE : Examine intercorrelations among depression, anxiety, and mood
-#           variables. Includes Pearson r, Spearman rho, and Kruskal-Wallis
-#           tests comparing anxiety scores across depression groups.
-# OUTPUT  : outputs/correlation_matrix.csv
-#           Console printout of all test statistics
-# RUN     : python 04_correlation_analysis.py
-# =============================================================================
+"""
+04_correlation_analysis.py
+PURPOSE : Examine intercorrelations among depression, anxiety, and mood
+          variables. Includes Pearson r, Spearman rho, and Kruskal-Wallis
+          tests comparing anxiety scores across depression groups.
+OUTPUT  : outputs/correlation_matrix.csv
+          Console printout of all test statistics
+RUN     : python 04_correlation_analysis.py
+"""
 
 import pandas as pd
 import numpy as np
@@ -22,9 +22,8 @@ def assign_phq_group(score):
 
 df["depression_group"] = df["score_phq"].apply(assign_phq_group)
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 # PART A: Pearson & Spearman correlations
-# ─────────────────────────────────────────────────────────────────────────────
 print("=" * 65)
 print("PART A: Pearson r and Spearman rho Correlations")
 print("=" * 65)
@@ -50,9 +49,7 @@ for c1, c2, l1, l2 in corr_pairs:
     sp_str = f"{sp:.4f}" if sp >= 0.0001 else "<.0001"
     print(f"  {pair_label:<38} {pr:>10.3f} {pp_str:>8}  {sr:>13.3f} {sp_str:>8}")
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PART B: Full correlation matrix
-# ─────────────────────────────────────────────────────────────────────────────
 matrix_cols = [
     "score_phq", "score_gad", "score_stai_t",
     "positive_affect_start", "negative_affect_start",
@@ -95,9 +92,7 @@ for col, label in kw_cols.items():
         print(f"    {g:<22}: Mdn = {sub.median():.1f}  (M = {sub.mean():.2f})")
     print()
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PART D: Interpretation note for Report
-# ─────────────────────────────────────────────────────────────────────────────
 print("=" * 65)
 print("PART D: Implication for Analysis Strategy")
 print("=" * 65)

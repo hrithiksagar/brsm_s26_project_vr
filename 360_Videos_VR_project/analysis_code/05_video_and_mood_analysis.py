@@ -1,12 +1,12 @@
-# =============================================================================
-# 05_video_and_mood_analysis.py
-# PURPOSE : Analyse per-video subjective ratings (valence, arousal, immersion)
-#           and PANAS mood change (pre vs post VR). Includes Wilcoxon signed-
-#           rank tests for video comparisons and paired t-tests for PANAS.
-# OUTPUT  : outputs/video_stats.csv
-#           Console printout
-# RUN     : python 05_video_and_mood_analysis.py
-# =============================================================================
+"""
+05_video_and_mood_analysis.py
+PURPOSE : Analyse per-video subjective ratings (valence, arousal, immersion)
+          and PANAS mood change (pre vs post VR). Includes Wilcoxon signed-
+          rank tests for video comparisons and paired t-tests for PANAS.
+OUTPUT  : outputs/video_stats.csv
+          Console printout
+RUN     : python 05_video_and_mood_analysis.py
+"""
 
 import pandas as pd
 import numpy as np
@@ -30,9 +30,7 @@ VIDEO_NAMES = {
     5: "Tahiti Surf",
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PART A: Per-video descriptive stats + Friedman test
-# ─────────────────────────────────────────────────────────────────────────────
 print("=" * 65)
 print("PART A: Per-Video Descriptive Statistics")
 print("=" * 65)
@@ -64,9 +62,7 @@ for dim in ["valence", "arousal", "immersion"]:
 pd.DataFrame(video_rows).to_csv(f"{OUTPUT_DIR}/video_stats.csv", index=False)
 print(f"\n  Saved → {OUTPUT_DIR}/video_stats.csv")
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PART B: Pairwise video comparisons (Wilcoxon signed-rank)
-# ─────────────────────────────────────────────────────────────────────────────
 print("\n" + "=" * 65)
 print("PART B: Pairwise Video Comparisons — Valence (Wilcoxon Signed-Rank)")
 print("=" * 65)
@@ -96,9 +92,7 @@ for v1, v2, label in [(4, 2, "Horror vs Beach"), (5, 2, "Surf vs Beach"),
     sig = "*" if p < 0.05 else ""
     print(f"  {label:<35} {W:>8.1f} {p:>10.4f}  {sig:>5}")
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PART C: Valence & Arousal by depression group (Kruskal-Wallis per video)
-# ─────────────────────────────────────────────────────────────────────────────
 print("\n" + "=" * 65)
 print("PART C: Valence by Depression Group (Kruskal-Wallis, per video)")
 print("=" * 65)
@@ -112,9 +106,7 @@ for i in range(1, 6):
     sig = "*" if p < 0.05 else ""
     print(f"  V{i}: {VIDEO_NAMES[i]:<24} {H:>8.3f} {p:>10.4f}  {sig:>5}")
 
-# ─────────────────────────────────────────────────────────────────────────────
 # PART D: PANAS pre vs post VR (paired t-test)
-# ─────────────────────────────────────────────────────────────────────────────
 print("\n" + "=" * 65)
 print("PART D: PANAS Mood Change — Pre vs Post VR (Paired t-test)")
 print("=" * 65)
