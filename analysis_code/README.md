@@ -90,20 +90,3 @@ Matches primary metric of Srivastava & Lahane (2025).
 
 
 
----
-
-## Key Results
-
-PHQ-9: M=6.03, SD=4.63 | Groups: Minimal n=20, Mild n=12, Mod-Severe n=8
-Correlations: PHQ-GAD r=.579, PHQ-STAI r=.642, GAD-STAI r=.697 (all p<.001)
-PANAS: Positive affect decrease t(39)=2.09, p=.043, d=0.27
-
-Head scanning speed (yaw deg/s):
-  V1 Abandoned Buildings: M=31.19, SD=8.77, ~62s
-  V2 Evening at Beach:    M=28.14, SD=7.73, ~61s
-  V3 Campus:              M=29.73, SD=9.39, ~61s
-  V4 The Nun (Horror):    M=17.92, SD=8.28, ~122s
-  V5 Tahiti Surf:         M=25.95, SD=9.64, ~184s
-
-Kruskal-Wallis group differences: all p > .30 (not significant)
-Spearman PHQ-9 vs yaw speed: all |rho| < .12, p > .48
