@@ -69,9 +69,8 @@ Each CSV (one per participant x video) has 11 columns:
 | RotationSpeedX | Pitch speed up/down (deg/s) | NO |
 | RotationSpeedY | Yaw angular speed (deg/s) PRIMARY METRIC | YES |
 | RotationSpeedZ | Roll speed tilt (deg/s) | NO |
-| RotationSpeedTotal | Total 3-D rotation speed (deg/s) | Computed, not reported |
+| RotationSpeedTotal | Total 3-D rotation speed (deg/s) | Computed |
 
-Last row of each CSV is "Circular Averages,..." — skipped automatically.
 
 Why yaw only? 360 video exploration is predominantly horizontal scanning.
 Matches primary metric of Srivastava & Lahane (2025).
@@ -89,7 +88,7 @@ Matches primary metric of Srivastava & Lahane (2025).
 | Spearman rho | 04, 06 | Non-parametric correlation for head-tracking vs PHQ-9 |
 | Paired t-test | 05 | PANAS difference scores were normally distributed (SW p > .10) |
 
-Methods NOT in Report 1 (reserved for Report 2): ANCOVA, ANOVA, regression, GLM, Friedman, Wilcoxon
+
 
 ---
 
