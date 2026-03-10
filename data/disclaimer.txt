@@ -1,4 +1,0 @@
-*Disclaimer for those who are working on the VR experiment:* 
-
-A limitation and point of difficulty for you guys is that each group (depressed vs non depressed) has different sizes. This is a common issue that experimenters face when the independent variable is not something that can be controlled (as it is intrinsically linked to the participant). A part of your grade will also be to acknowledge and see how you can work around this in meaningful ways.
-You have been given a research paper that basically outlines everything you have to do. Simply replicating their analyses will not get you full marks because then you haven't applied the concepts you learnt in the course, and because this study is not the same as that one in very specific ways (you are encouraged to find out what these differences are)
