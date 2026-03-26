@@ -2,12 +2,12 @@
 import os
 
 # ── File Paths 
-DATA_PATH     = "../data/data.xlsx"
+DATA_PATH     = "/Users/bharatgen-hyd-202538/Downloads/brsm_s26_project_vr/360 Videos VR project/data/data.xlsx"
 
 # Head-tracking CSVs organised in per-video sub-folders:
 #   headtracking-data/v1/data_video1_<ts>.csv
 #   headtracking-data/v2/data_video2_<ts>.csv  ... v5
-HEADTRACK_DIR = "../data/headtracking-data"
+HEADTRACK_DIR = "/Users/bharatgen-hyd-202538/Downloads/brsm_s26_project_vr/360 Videos VR project/data/headtracking-data"
 OUTPUT_DIR    = "outputs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 

@@ -1,0 +1,1862 @@
+\clearpage
+\section{Overview}
+This supplementary document provides additional details on  \modelName, \datasetName, \benchmarkName, expanding each component presented in the main paper. We first formalize grounding as a multi-granular segmentation task, followed by in depth architectural details and the motivation for our additional loss components. We then describe our data generation pipelines for layout aware, curved text, and chart documents, along with the data  verification pipeline to ensure high quality grounded QA pairs. Subsequent sections provide baseline implementations, benchmark specific evaluation settings, and further qualitative examples. 
+
+\section{Document Grounding}
+
+Document grounding refers to the task of identifying the exact visual region within a document that supports a predicted answer. 
+% Unlike text only QA systems \cite{zhou2025dogr} that operate purely on OCR tokens or flattened textual representations, grounding explicitly links back to spatial evidence on the page. 
+Grounding ensures interpretability by showing where the model obtained the answer from, and enables more understanding across diverse document types such as reports, forms, tables, webpages, posters, and charts.
+
+\subsection{Current Approaches}
+Existing grounding methods treat the problem through the lens of OCR span matching or bounding box prediction. In span matching pipelines
+, the model predicts an answer string and grounding is obtained by locating this string in the OCR output. This strategy collapses whenever the same phrase appears multiple times, when OCR misses or distorts text, or when the underlying text is curved, rotated, or visually complex. Bounding-box prediction improves over span matching but remains limited: boxes cannot represent curved or skewed regions. And also these methods operate at only one granularity and rely on coarse shapes, they fail to capture the true intent and structure of grounding in real documents.
+
+\subsection{Segmentation Based Grounding}
+Segmentation based grounding addresses these limitations by predicting pixel-level masks that accurately follow the shape and geometry of the supporting regions. Masks can capture curved text, irregular boundaries, and disjoint spans far more precisely than bounding boxes. By combining pixel-level precision with multi-granular hierarchy, segmentation-based grounding provides a more faithful and expressive representation of evidence, enabling models to better capture the structure and semantics of complex document layouts.
+
+% Define the style once so you can reuse it
+\definecolor{ColorExtractive}{RGB}{167,199,231}
+\tcbset{
+  myprompt/.style={
+    enhanced,
+    breakable,
+    colback=Apricot!15,
+    colframe=brown!70!black,
+    coltitle=white,
+    fonttitle=\bfseries,
+    boxrule=0.7pt,
+    arc=3mm,
+    top=3mm,
+    bottom=3mm,
+    left=4mm,
+    right=4mm,
+    detach title,
+    boxed title style={
+      colback=brown!80!black,
+      colframe=brown!80!black,
+      sharp corners,
+      boxrule=0pt,
+      top=1mm,
+      bottom=1mm,
+      left=2mm,
+      right=2mm,
+    },
+    varwidth boxed title*=-1mm, % FIXED: proper small offset
+    attach boxed title to top left={
+        xshift=3mm, yshift*=-\tcboxedtitleheight/2
+    }
+  }
+}
+\tcbset{
+  prompt_extractive/.style={
+    myprompt,
+    colback=ColorExtractive!12,                    % soft fill (light)
+    colframe=ColorExtractive!55!black,             % framed darker than fill
+    boxed title style={colback=ColorExtractive!75!black, colframe=ColorExtractive!75!black},
+    coltitle=white
+  }
+}
+
+% ---------- Structural color (exact RGB) ----------
+% \definecolor{ColorStructural}{RGB}{193,216,255} % (193,216,255)
+
+% % Optional: a slightly darker title variant (for the boxed title)
+% \definecolor{ColorStructuralTitle}{RGB}{135,151,179} % ~0.7x darker, use if you want a purer darker title bar
+
+% % ---------- prompt_structural style (replace old one) ----------
+% \tcbset{
+%   prompt_structural/.style={
+%     myprompt,
+%     colback=ColorStructural!10,                              % soft page-fill
+%     colframe=ColorStructural!55!black,                       % border (mixed with black for contrast)
+%     boxed title style={colback=ColorStructuralTitle!95!black, colframe=ColorStructuralTitle!95!black},
+%     coltitle=white
+%   }
+% }
+% ---------- Structural color (new purple) ----------
+\definecolor{ColorStructural}{RGB}{170,140,255}      % Medium purple
+\definecolor{ColorStructuralTitle}{RGB}{120,98,179}  % Slightly darker title bar
+
+% ---------- prompt_structural style ----------
+\tcbset{
+  prompt_structural/.style={
+    myprompt,
+    colback=ColorStructural!12,                       % soft purple fill
+    colframe=ColorStructural!55!black,                % darker border
+    boxed title style={
+        colback=ColorStructuralTitle!95!black,
+        colframe=ColorStructuralTitle!95!black
+    },
+    coltitle=white
+  }
+}
+% ---------- Procedural color (exact RGB) ----------
+\definecolor{ColorProcedural}{RGB}{184,224,168}   % (184,224,168)
+
+% Optional: darker title variant for good contrast (≈70% brightness)
+\definecolor{ColorProceduralTitle}{RGB}{129,157,118} % approx 0.7 * (184,224,168)
+
+% ---------- prompt_procedural style (replace old one) ----------
+\tcbset{
+  prompt_procedural/.style={
+    myprompt,
+    colback=ColorProcedural!12,                           % light fill
+    colframe=ColorProcedural!55!black,                    % framed darker
+    boxed title style={colback=ColorProceduralTitle!95!black, colframe=ColorProceduralTitle!95!black},
+    coltitle=white
+  }
+}
+% Reasoning (pastel orange)
+\tcbset{
+  prompt_reasoning/.style={
+    myprompt,
+    colback=colorReasoning!14,
+    colframe=colorReasoning!55!black,
+    boxed title style={colback=colorReasoning!68!black, colframe=colorReasoning!68!black},
+    coltitle=white
+  }
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Method}
+
+
+Grounding in document question answering requires the model to produce not only an accurate answer but also the exact visual region that justifies that answer. Instead of direct coupling between text generation and grounding prediction such as embedding coordinates inside the textual output, \modelName\ avoids this by \textit{decoupling} the two tasks.
+
+\noindent
+\textit{Key idea:}
+The VLM determines the answer and provides grounding cues for each answer span, and the segmentation module uses these cues to generate pixel-level masks for the corresponding regions in the document.
+% The VLM understands the question and identify answer spans that has to be grounded. A separate segmentation module handles the visual side locating those spans in the image. 
+The VLM and segmentation module interact through \texttt{[GROUND]} tokens: the VLM emits a \texttt{[GROUND]} token immediately after each answer span, and the segmentation module uses the token’s hidden state to generate the corresponding phrase, line, and block-level grounding masks.
+
+
+\subsection{Formulation}
+
+Given a document image $\mathbf{x}$ and question $q$, the VLM autoregressively produces an output sequence in which the answer is decomposed into explicit answer spans.
+% Each span is enclosed by special boundary tokens \texttt{<e>} and \texttt{</e>}, followed immediately by a \texttt{[GROUND]} marker that triggers spatial grounding. 
+Formally,
+\begin{equation}
+\hat{a} = 
+\bigl(\ldots
+\texttt{<e>}y_k~\texttt{</e>}\texttt{[GROUND]},
+\ldots \bigr).
+\end{equation}
+
+\noindent
+where 
+% $y_k$ correspond to an answer span. The \texttt{[GROUND]} token serves as an explicit instruction to the model that the preceding span must be grounded to the image.
+\texttt{<e>} and \texttt{</e>} denotes the start and end of the answer span $y_k$ within the generated sequence. \texttt{[GROUND]} token appears immediately after each answer span $y_k$ and signals the model to generate its corresponding hierarchical grounding masks.
+
+
+For each \texttt{[GROUND]} token generated, the corresponding hidden state from the last layer of the VLM $\tilde{\mathbf{h}}_k$ is passed through three granularity specific MLP projection heads $\{\gamma_i\}_{i\in\mathcal{G}}$ where $\mathcal{G}=\{p,l,b\}$ ($p$, $l$, $b$ corresponds to phrase, line and block levels respectively).
+These projections produce hierarchical grounding prompt embeddings $\mathbf{h}^{(i)}_k$ for phrase ($p$), line ($l$), and block ($b$) levels. 
+\begin{equation}
+\text{for } i \in \mathcal{G}:\;
+\mathbf{h}^{(i)}_k = \gamma_i\big(\tilde{\mathbf{h}}_k\big)
+\end{equation}
+
+In parallel, the segmentation module's vision encoder $\mathcal{F}_{\text{enc}}$ processes the input document image $\mathbf{x}$ to extract dense visual features $\mathbf{z}= \mathcal{F}_{\text{enc}}(\mathbf{x})$. 
+The grounding prompt embeddings ${\mathbf{h}^{(i)}_k}$ and image features $\mathbf{z}$ are provided as input to the segmention module's mask decoder $\mathcal{F}_{\text{dec}}$ to predict grounding masks at multiple granularities:
+\begin{equation}
+\text{for } i \in \mathcal{G}:\; 
+\hat{\mathbf{M}}^{(i)}_k = \mathcal{F}_{\text{dec}}\big(\mathbf{h}^{(i)}_k,\, \mathbf{z}\big)
+\end{equation}
+This yields a hierarchy of grounding masks \(\{\hat{\mathbf{M}}_k^{(p)}, \hat{\mathbf{M}}_k^{(l)}, \hat{\mathbf{M}}_k^{(b)}\}\) that capture phrase-, line-, and block-level spatial grounding for each \texttt{[GROUND]} token.
+% This yields a hierarchy of grounding masks
+% \[
+% \{\hat{\mathbf{M}}_k^{(p)},\hat{\mathbf{M}}_k^{(l)},\hat{\mathbf{M}}_k^{(b)}\},
+% \]
+% % $\{\hat{\mathbf{M}}^{(i)}_k\}_{i\in\mathcal{G}}$ 
+% that capture phrase, line, and block level spatial grounding for each \texttt{[GROUND]} token.
+
+
+% \subsection{Evidence Segmentation}
+
+% For every emitted \texttt{[GROUND]} token, the decoder produces a final hidden state
+% \begin{equation}
+% \tilde{\mathbf{h}}_k \in \mathbb{R}^{d},
+% \end{equation}
+% which serves as a compact encoding of the preceding answer span. This representation captures the span’s semantic content, its surrounding linguistic context, and the cross-modal cues fused through the VLM decoder layers. 
+
+% \paragraph{Granularity-Specific Prompt Generation.}
+% To obtain grounding signals at different spatial scales, $\tilde{\mathbf{h}}_k$ is projected through a set of granularity-specific MLP heads:
+% \begin{equation}
+% \mathbf{h}_k^{(i)} = \mathrm{MLP}^{(i)}(\tilde{\mathbf{h}}_k),
+% \qquad i \in \{p,l,b\},
+% \end{equation}
+% where $p$, $l$, and $b$ correspond to phrase-, line-, and block-level grounding, respectively. Each $\mathbf{h}_k^{(i)}$ acts as a prompt that conditions the segmentation module to predict a mask at the appropriate granularity.
+
+% \paragraph{Segmentation Backbone.}
+% Independently of text generation, the segmentation encoder processes the document image and produces dense, high-resolution visual features:
+% \begin{equation}
+% \mathbf{z} = \mathcal{F}_{\mathrm{enc}}(\mathbf{x}).
+% \end{equation}
+
+% \paragraph{Mask Decoding.}
+% The prompt embeddings $\mathbf{h}_k^{(i)}$ modulate the shared segmentation features $\mathbf{z}$ through a prompt-conditioned mask decoder:
+% \begin{equation}
+% \hat{\mathbf{M}}_k^{(i)} = \mathcal{F}_{\mathrm{dec}}(\mathbf{z},\, \mathbf{h}_k^{(i)}),
+% \qquad i \in \{p,l,b\}.
+% \end{equation}
+
+% \noindent
+% Thus, each answer span yields a \emph{set} of masks 
+% \[
+% \{\hat{\mathbf{M}}_k^{(p)},\hat{\mathbf{M}}_k^{(l)},\hat{\mathbf{M}}_k^{(b)}\},
+% \]
+% capturing its spatial footprint at increasingly broader granularities. This formulation ensures that grounding information is systematically derived from the hidden state of the \texttt{[GROUND]} token while maintaining a strict separation between linguistic reasoning and spatial localization.
+
+
+\subsection{Multi-Granularity Grounding}
+
+Documents exhibit a natural hierarchical structure: words form lines, and lines form coherent blocks such as paragraphs, table rows, item groups, or semantic sections. 
+Grounding answer spans at a single scale is therefore insufficient, different intents rely on different scopes of visual context. 
+\modelName\ addresses this by predicting grounding masks at three complementary granularities: phrase, line, and block. 
+Figure~\ref{fig:teaser}~\greenCircledNumber{C1}-\greenCircledNumber{C3} illustrates how the grounding region expands hierarchically for the same answer span.
+
+\paragraph{Phrase Level (Fine Grained Evidence):}
+The phrase mask captures the \emph{minimal} text region supporting an answer. 
+This includes individual words, numbers, monetary amounts, table-cell values, or short key value fields. 
+In the example (\greenCircledNumber{C1}), \modelName\ isolates each numeric spend (e.g., ``120.00'', ``210.00'') with crisp, shape-preserving masks, even when values appear in dense or cluttered rows. 
+Phrase-level grounding is essential for extractive QA, where the answer corresponds to a precise textual span.
+
+\paragraph{Line Level (Local Context Evidence):}
+Some require context beyond a single phrase, such as disambiguating repeated values or understanding the semantic role of the number within its line. 
+The line mask corresponds to the \emph{entire visual line} containing the answer.
+In Figure~\ref{fig:teaser}~\greenCircledNumber{C2}, the model highlights full transaction rows, including merchant names, timestamps, and categories. 
+This granularity helps the model associate a spend amount with its transaction type and disambiguate identical numeric values that occur in multiple lines.
+
+\paragraph{Block Level (Global Context Evidence):}
+Block masks expand grounding beyond individual lines to larger structural units such as multi line form fields, table sections, grouped transactions, or entire semantic blocks. 
+This is crucial for reasoning-oriented questions that require summarizing or comparing values across a broader region.
+In Figure~\ref{fig:teaser}~\greenCircledNumber{C3}, the model correctly identifies the full group of high-spend transactions, showing that block level grounding captures the layout level context needed for multi-span QA pairs. 
+The block region encompasses multiple rows while excluding irrelevant parts of the page.
+
+% \paragraph{Why Multi-Granular Grounding Matters:}
+% Different question intents require different visual scopes:
+% \begin{itemize}
+%     \item \emph{Extractive questions} (``What is the total amount?'') require fine-grained phrase masks.
+%     \item \emph{Row-level reasoning} (``Which merchant charged 210.00?'') benefits from line-level grounding.
+%     \item \emph{Compositional or multi-span queries} (``What are my top 3 highest spends this month?'') require block-level grouping to identify related evidence. 
+% \end{itemize}
+% Grounding at all three levels significantly improves interpretability and reliability. 
+% It also provides explicit hierarchical structure during training, enabling \modelName\ to reason across spatial scales without hallucinating or overshooting evidence regions. 
+% The containment $\text{phrase} \subset \text{line} \subset \text{block}$ observed in Figure~\ref{fig:teaser} naturally emerges from our hierarchical enclosure loss.
+
+
+\subsection{Training Objective}
+
+\modelName\ is trained end-to-end to jointly optimize answer generation and hierarchical mask prediction. 
+The overall objective combines four complementary components:
+\[
+\mathcal{L} =
+\lambda_{\mathrm{lm}}\,\mathcal{L}_{\mathrm{lm}}
++ \lambda_{\mathrm{seg}}\,\mathcal{L}_{\mathrm{seg}}
++ \lambda_{\mathrm{bleed}}\,\mathcal{L}_{\mathrm{bleed}}
++ \lambda_{\mathrm{hier}}\,\mathcal{L}_{\mathrm{hier}}
+\]
+
+\noindent Each term addresses a different aspect of \modelName\
+
+\paragraph{Language Modeling:}
+The answer sequence is supervised using standard cross-entropy loss \cite{rumelhart1986learning_cross_entropy_loss}:
+This term ensures that the model generates accurate answer text, correctly places span delimiters (\texttt{<e>}, \texttt{</e>}), and appropriate number of \texttt{[GROUND]} tokens, and preserves the structure of multi-span answers. 
+
+\paragraph{Segmentation:}
+For each grounded span $k$ and granularity $i \in \mathcal{G}=\{p,l,b\}$, the corresponding mask $\hat{\mathbf{M}}^{(i)}_k$ is supervised using a combination of Dice \cite{milletari2016v_dice_loss} and BCE \cite{rumelhart1986learning_cross_entropy_loss} losses:
+
+\[
+\mathcal{L}_{\mathrm{seg}} = 
+\sum_{i\in\mathcal{G}} \sum_{k=1}^{K}
+\Big(
+\lambda_{\mathrm{dice}}^{(i)}\,\ell_{\mathrm{dice}}(\hat{\mathbf{M}}_k^{(i)},\mathbf{M}_k^{(i)})
++
+\lambda_{\mathrm{bce}}^{(i)}\,\ell_{\mathrm{bce}}(\hat{\mathbf{M}}_k^{(i)},\mathbf{M}_k^{(i)})
+\Big)
+\]
+
+\paragraph{Bleed Suppression:}
+SAM struggles in infographic rich documents, where visual , non-textual elements, icons often cause masks to spill into nearby regions. Since SAM is not trained for fine grained text localization, it is susceptible to bleed into such regions. To address this, bleed suppression loss penalizes any predicted foreground outside the reference text region, providing an additional constraint for document text.
+
+\noindent Let $\mathbf{M}_{\mathrm{pred}}$ denote the predicted mask and $\mathbf{M}_{\mathrm{ref}}$ the union of all ground-truth text pixels. The \textit{Bleed} is defined as
+\[
+\textit{Bleed}
+= \mathbf{M}_{\mathrm{pred}} \odot \left(1 - \mathbf{M}_{\mathrm{ref}}\right) 
+\]
+ Constraining this helps the segmentation head to stay tightly aligned with true text shapes and prevents leakage into surrounding graphical content, yielding cleaner masks. The final bleed loss (\cref{fig:bleed_loss_diagram}) is formulated as:
+
+
+\[
+\mathcal{L}_{\mathrm{bleed}} =
+\sum_{i\in\mathcal{G}}\sum_{k=1}^{K}
+\frac{
+\sum_{j\in\Omega}\hat{\mathbf{M}}_k^{(i)}(j)\,[1 - \mathbf{M}_{\mathrm{ref}}(j)]
+}{
+\sum_{j\in\Omega}\hat{\mathbf{M}}_k^{(i)}(j) + \epsilon
+}
+\]
+ 
+\begin{figure}[t] 
+    \centering
+    \includegraphics[width=\textwidth]{figs/supp/grounding_bleed_loss.png}
+    \caption{
+Bleed Loss
+    }
+    \label{fig:bleed_loss_diagram}
+\end{figure} 
+
+\begin{figure}[t] 
+    \centering
+    \includegraphics[width=0.8\textwidth]{figs/supp/grounding-Hierarchical Loss.png}
+    \caption{
+Hierarchical Loss
+    }
+    \label{fig:hierloss_diagram}
+\end{figure} 
+
+\paragraph{Hierarchical Enclosure:}
+Since phrase, line, and block masks represent nested levels of the same answer evidence, we explicitly enforce containment. The hierarchical enclosure loss (\cref{fig:hierloss_diagram}) penalizes pixels where a finer mask extends beyond its coarser counterpart:
+
+\[
+\mathcal{L}_{\mathrm{hier}} =
+\sum_{k=1}^{K}
+\sum_{(i,j)\in\{(p,l),(l,b)\}}
+\frac{
+\sum_{m\in\Omega}
+\hat{\mathbf{M}}_k^{(i)}(m)\,[1 - \mathbf{M}_k^{(j)}(m)]
+}{
+\sum_{m\in\Omega}\hat{\mathbf{M}}_k^{(i)}(m) + \epsilon
+}.
+\]
+This constraint stabilizes multi-granular predictions and prevents contradictory mask shapes across scales.
+In visually dense layouts such as double-column pages, tightly packed lines etc , line-level masks may drift into an adjacent column, or phrase-level masks may partially overlap with a neighboring line. The hierarchical loss is constructed specifically to suppress such cross-level leakage. By forcing finer masks to remain strictly within their parent masks, it ensures that even in cluttered layouts the model preserves structural consistency and assigns each phrase, line, and block to the correct spatial hierarchy.
+
+
+
+
+
+
+
+
+
+
+\subsection{Training Implementation}
+
+We train \modelName\ end-to-end using our hybrid language segmentation
+objective on the full 2M multi-span, multi-granular QA pairs of the \datasetName\. All experiments are conducted on a cluster of 64$\times$NVIDIA H100 (80GB) GPUs using DeepSpeed ZeRO-3
+for full parameter, gradient, and optimizer state sharding. The vision encoder of the VLM backbone is kept
+frozen during training. Within the VLM stack, only the LM decoder is updated. Within the segmentation stack, only the mask decoder is trainable. All remaining segmentation components remain frozen.
+We train for 1 epoch over the full dataset using a per-device batch size of \textbf{2}, yielding an effective global batch size of 128. We use the AdamW \cite{kingma2017adammethodstochasticoptimization} optimizer with a learning rate of \(\,2\times 10^{-6}\), warmup ratio of \(3\%\), cosine decay schedule, zero weight decay, and gradient norm clipping of 1.0. Following the design of the original SAM implementation, we keep the
+entire segmentation module (prompt encoder, mask decoder, and the associated heads) in FP32. This matches SAM’s publicly released training configuration, where the mask decoder is stored and executed in full precision. All remaining components of the VLM backbone operate in bfloat16 mixed precision, with FP32 master weights
+maintained by ZeRO.
+
+
+\subsection{Latency Evaluation}
+
+We compare inference latency between the vanilla Qwen3-VL \cite{qwen3technicalreport} backbone and our full \modelName\ model. All measurements are averaged over \benchmarkName\  on a single NVIDIA H100 GPU. Qwen3-VL requires $445$ ms per sample, whereas M3Grounder with hierarchical projection layers and SAM-based mask decoding runs at $508$ ms per sample, incurring only $+63$ ms  additional latency while providing multi-level grounding capability. This overhead is small relative to the substantial gains in grounding. Demonstrating that grounding-aware decoding can be added to larger VLMs with minimal computational cost.
+
+\section{Dataset Generation Pipeline}
+Most existing document grounding datasets \cite{zhou2025dogr,giovannini2025boundingdocs} rely on OCR text extraction followed by span to bounding box matching. The grounding region is determined by locating where a token string appears in the OCR output.
+This approach fails in several practical cases:(1) Many documents contain repeated key phrases (e.g., “Total”, “Address”, “Name”, repeated section headers).
+OCR-span matching cannot determine which instance corresponds to the correct semantic answer.
+As a result, grounding becomes ambiguous and often incorrect.(2) Further, OCR pipelines flatten the document into a single unstructured text sequence, discarding layout hierarchy and spatial relationships. 
+
+Hence, grounding diversity degrades significantly. 
+To address these limitations, a grounding dataset must preserve hierarchical layout, fine grained spatial structure, and visual geometry of text elements. Many real world documents contain curved headlines, skewed paragraphs, multi-column layouts, tables with merged cells, and visually dense charts. These structures cannot be faithfully represented by OCR based pipelines, which operate purely at the token level and ignore geometric attributes such as curvature, rotation, and shape.
+
+Moreover, existing document grounding QA datasets \cite{giovannini2025boundingdocs, zhou2025dogr} do not provide segmentation masks, offering only bounding boxes. These boxes are insufficient for irregular text, curved text, or chart elements, where a rectangular region captures large amounts of background and fails to localize the true answer region. Reliable grounding requires pixel-level masks that tightly follow the shape of text lines, phrases, and visual elements.
+
+To handle this, we design three complementary data generation pipelines: \circnumpurple{1} a pipeline for layout aware documents, \circnumpurple{2} a dedicated pipeline for curved and skewed text documents, and \circnumpurple{3} a rendering-driven pipeline for charts.
+
+\paragraph{Dataset Statistics:}
+ Our dataset contains 52\% single-span QAs (16\% charts, 28\% text-rich documents, 8\% curved) and 48\% multi-span QAs (17\% charts, 24\% text-rich documents, 7\% curved), ensuring diverse QA pairs.
+ Our chart corpus is primarily composed of Bar Charts (18.62\%), Line Charts (17.19\%), and Scatter Plots (15.20\%), followed by Pie Charts (12.28\%), Box Plots (8.82\%), Area Charts (7.43\%), Heatmaps (5.58\%), Radar Charts (4.52\%), and Donut Charts (3.87\%), while the remaining chart types collectively account for 6.49\% of the dataset.
+\begin{figure}[H] 
+    \centering
+    \includegraphics[width=0.7\textwidth]{figs/supp/dataset-distribution.pdf}
+    \caption{
+       GroundingDocQA Dataset Distribution
+    }
+    \label{fig:layoutaware_docs}
+\end{figure}
+
+\paragraph{QA Taxonomies:}
+We design our \datasetName\ dataset to capture a broad spectrum of question patterns rather than restricting it to simple text-extraction tasks. The final collection includes grounded QA pairs spanning multiple taxonomies such as extractive queries, structural questions, procedural instructions, validation checks, comparisons, and summarisation oriented reasoning. As shown in \cref{fig:QA taxonomy}, the dataset is organised into four categories extractive, structural, procedural, and reasoning, each further divided into fine-grained subtypes including localisation, numerical queries, NER-style questions, comparative analysis, counterfactual reasoning, and abstractive summarisation. 
+
+\begin{figure}[H]  % <--- THIS IS THE FIX
+    \centering
+    \includegraphics[width=0.45\textwidth]{figs/docs_chart.png}
+    \caption{
+       Distribution of QA taxonomies used during dataset generation. 
+        The inner ring shows the four categories (Extractive, Structural, Procedural, and Reasoning), 
+        while the outer ring shows the further subtypes.
+    }
+    \label{fig:QA taxonomy}
+\end{figure}
+
+    
+
+\subsection{Layout-Aware Documents}
+\begin{figure}[H] 
+    \centering
+    \includegraphics[width=0.95\textwidth]{figs/supp/layoutaware_documents.pdf}
+    \caption{
+       Grounded QA generation pipeline for Layout-Aware Documents
+    }
+    \label{fig:layoutaware_docs}
+\end{figure}
+\paragraph{Why REPLICA for Text-Rich Documents.} 
+
+
+For text rich documents, we rely on REPLICA \cite{replica2025} engine for grounded QA generation because it preserves both the visual fidelity and the hierarchical structure of each page. REPLICA's \cite{replica2025} \emph{Fid-HTML}  \circnumpurple{1C}~provides stable line level bounding boxes, their corresponding block-level regions, and an explicit reading order that matches the true layout of the document. \cref{fig:replica_sample_1,fig:replica_sample_2,fig:replica_sample_3} Shows that REPLICA \cite{replica2025} captures layout and geometry of document, while OCR or Markdown based representations often collapses structure, merges unrelated regions. 
+
+
+\paragraph{Overview of Fid-HTML \circnumpurple{1C}:} Fid-HTML is a high-fidelity, semantically enriched HTML representation produced by the REPLICA \cite{replica2025} engine. It is designed to capture both the semantic structure and the visual presentation of a document, enabling downstream tasks that require faithful reconstruction as well as machine-readable semantics.
+
+\vspace{4pt}
+\noindent Fid-HTML encodes document content along multiple complementary dimensions:
+\begin{enumerate}
+    \item \textit{Textual content:} complete text is extracted and preserved at both word and block level.
+    \item \textit{Hierarchical structure:} nested \texttt{<div>} elements represent document hierarchy such as sections, blocks, and lines.
+    \item \textit{Semantic tags:} structural HTML tags such as \texttt{<li>}, \texttt{<table>}, \texttt{<tr>}, \texttt{<td>} and semantic class names provide rich semantic grounding.
+    \item \textit{Positional information:} global layout is preserved via absolute coordinates, while local alignment is captured through relative positioning; textual segments are wrapped in \texttt{<p>} tags inside higher-level containers.
+    \item \textit{Styling metadata:} font size, color, and text attributes (bold, italics, underline, strikethrough) are maintained as inline CSS for high-fidelity style preservation.
+    \item \textit{Figures and backgrounds:} images, figures, and background regions are incorporated into the HTML; alt captions for figures is automatically generated by VLMs to enhance accessibility.
+\end{enumerate}
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.70\linewidth]{figs/supp/Sample_1_Data_Engine.png}
+    \caption{Reference Fid-HTML representation generated using the REPLICA engine (Sample 1).}
+    \label{fig:replica_sample_1}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.70\linewidth]{figs/supp/Sample-2_Data_Engine.png}
+    \caption{Reference Fid-HTML representation generated using the REPLICA engine (Sample 2).}
+    \label{fig:replica_sample_2}
+\end{figure}
+
+\FloatBarrier
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.79\linewidth]{figs/supp/Sample_3_Data_Engine.png}
+    \caption{Reference Fid-HTML representation generated using the REPLICA engine (Sample 3).}
+    \label{fig:replica_sample_3}
+\end{figure}
+
+
+
+\paragraph{QA Prompt Specification for Layout-Aware Documents \circnumpurple{1D}}
+Given the document’s Fid-HTML, we design a QA prompt that guides the LLM~\cite{agarwal2025gpt} to produce  diverse, spatially grounded QA pairs. The prompt covers diverse taxonomies including extractive, structural, procedural and reasoning-oriented questions. 
+
+
+\begin{tcolorbox}[myprompt, title=Input \& Task]
+\medskip
+\noindent\textbf{Input:} One Element-ID HTML that maps visible elements (titles, paragraphs, headers, tables, lists, captions, footnotes, etc.) to unique element IDs together with their corresponding text and bounding boxes.
+
+\medskip
+\noindent\textbf{Task:}
+\begin{itemize}
+  \item Generate \textbf{3–7 diverse, non-overlapping} QA pairs grounded in the provided HTML.
+  \item Ensure \textbf{at least one QA per requested taxonomy} (extractive, abstractive, procedural, reasoning).
+  \item Produce a mixture of short factual questions and longer abstractive/reasoning questions.
+  \item Use only visible \texttt{<body>} content; ignore \texttt{<head>}, \texttt{<style>}, \texttt{<script>} or any hidden metadata.
+  \item Do not correct OCR, paraphrase evidence phrases, or invent content not present in the HTML.
+  \item No hallucination every answer must be evidence based.
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[myprompt, title=Evidence Rules \& Answer Alignment]
+
+\medskip
+\noindent\textbf{Element usage}
+\begin{itemize}
+  \item Use \textbf{only} the element IDs present in the Element-ID HTML. Never invent or modify IDs.
+  \item For every QA include the element’s own ID in the evidence field when possible.
+  \item For multi-span answers include all relevant element IDs.
+\end{itemize}
+
+\medskip
+\noindent\textbf{Minimal evidence rule}
+\begin{itemize}
+  \item Prefer the smallest set of element IDs that fully supports the answer.
+  \item Add parent/heading IDs only when required for disambiguation or context.
+  \item For numeric/tabular answers, include the specific cell ID plus the label IDs that disambiguate the number.
+\end{itemize}
+
+\medskip
+\noindent\textbf{Answer alignment}
+\begin{itemize}
+  \item Each QA must include \texttt{phrases}: minimal verbatim substrings (≤3–4 words) copied exactly from the referenced element(s).
+  \item If an answer requires multiple spans, include multiple \texttt{phrases} in the listed order.
+  \item If a phrase match is ambiguous (the same substring occurs multiple times on the same line and cannot be uniquely resolved), discard that QA rather than guessing.
+  \item Never paraphrase or invent text when constructing \texttt{phrases}.
+\end{itemize}
+\end{tcolorbox}
+
+
+
+
+
+
+\begin{tcolorbox} [myprompt, title=Required Fields \& Forbidden Questions]
+
+
+\medskip
+\noindent\textbf{Required QA object fields (per item)}
+\begin{itemize}
+  \item \texttt{qa\_number}: integer (sequential starting at 1)
+  \item \texttt{category}: human-readable taxonomy (e.g., factual, ner, numerical, abstractive)
+  \item \texttt{question}: standalone string
+  \item \texttt{answer}: string (or array/object when appropriate)
+  \item \texttt{answer\_html\_id}: array of element IDs used as evidence
+  \item \texttt{phrases}: array of minimal verbatim substrings (≤3–4 words) copied exactly from the referenced element(s)
+\end{itemize}
+
+\medskip
+\noindent\textbf{Final checks (validator)}
+\begin{itemize}
+  \item Output must be a valid UTF-8 JSON array containing 3–7 QA objects. No markdown, no commentary, no trailing commas.
+  \item At least one QA per requested taxonomy; no hallucinations; all \texttt{phrases} verbatim.
+  \item If phrase-to-box mapping is ambiguous the QA must be discarded.
+\end{itemize}
+
+\medskip
+\noindent\textbf{Forbidden questions}
+\begin{itemize}
+  \item Do not ask meta-questions about element IDs (e.g., “What element IDs are present?”).
+  \item Do not ask about raw HTML attributes, tags or source code (e.g., “What is the image src?”).
+  \item Do not generate questions that require internal document-structure inspection rather than human-readable content.
+  \item Avoid empty placeholders and meaningless comparisons.
+\end{itemize}
+
+\medskip
+\noindent\textbf{Example (single QA object)}
+\begin{verbatim}
+[
+  {
+    "qa_number": 1,
+    "category": "factual",
+    "question": "What is the GST rate for the extra bed?",
+    "answer": "18% on Rs. 8000",
+    "answer_html_id": ["8.30","8.32"],
+    "phrases": ["18% on Rs. 8000"]
+  }
+]
+\end{verbatim}
+
+\end{tcolorbox}
+
+
+\begin{tcolorbox}[prompt_extractive, title=Extractive QA Taxonomy]
+\setlist[itemize]{left=4mm}
+\medskip
+
+\textbf{Factual.}
+Factual questions require retrieving a specific piece of information explicitly stated in the document.
+These include short answers such as names, dates, durations, titles, or direct statements without any reasoning.
+
+\medskip
+\textit{Examples:}
+\begin{itemize}
+  \item What is Janes studying? $\rightarrow$ ``Literature.''
+\end{itemize}
+
+\medskip
+
+\textbf{NER (Named Entity Recognition).}
+NER-based questions focus on identifying proper nouns present in the document, such as people, organizations,
+locations, dates, or product names. The answer must match the exact entity span without paraphrasing.
+
+\textit{Examples:}
+\begin{itemize}
+  \item Which company manufactured the device? $\rightarrow$ ``ZenLabs Pvt.\ Ltd.''
+\end{itemize}
+
+\medskip
+
+\textbf{Numerical.}
+Numerical questions require extracting values such as percentages, counts, prices, quantities, units, or any
+numeric expression that appears verbatim in the document. No arithmetic or reasoning is needed.
+\medskip
+
+\textit{Examples:}
+\begin{itemize}
+  \item What percentage of tax is applied? $\rightarrow$ ``18\%''
+\end{itemize}
+
+\end{tcolorbox}
+
+\begin{tcolorbox}[prompt_structural, title= Structural  QA Taxonomy]
+\textbf{Layout \& Structure}
+
+Questions about the document's layout, logical grouping, and spatial relationships.
+This category includes reasoning over table structure, list membership, header–body relations,
+and identifying which block or section contains a given piece of information.
+
+\medskip
+\textit{Examples:}
+
+\begin{itemize}
+  \item ``Which row lists the product price?'' $\rightarrow$ ``Row 4 (Price column)''
+\end{itemize}
+
+\vspace{6pt}
+\textbf{Localisation}
+
+Questions that require locating content in page coordinate space or mapping answers
+directly to visual regions (blocks, lines, words, or polygons). Answers should reference
+element IDs and/or explicit bounding boxes and may include pixel coordinates when needed.
+This taxonomy evaluates precise grounding and spatial alignment rather than semantic retrieval.
+
+\medskip
+\textit{Examples:}
+\begin{itemize}
+
+  \item ``Which element contains the invoice total? Return its element ID.'' $\rightarrow$ ``7.2''
+
+\end{itemize}
+\end{tcolorbox}
+
+
+\begin{tcolorbox}[prompt_procedural, title=Procedural QA Taxonomy]
+\textbf{Validation}
+
+Binary (Yes / No, True / False) questions that check presence, compliance, or correctness of required information.
+These questions confirm whether a condition is satisfied and must cite the specific element(s) that justify the decision.
+Validation often covers regulatory checks, required-field presence, signatures, and checkbox/status verification.
+
+\medskip
+\textit{Examples:}
+\begin{itemize}
+  \item ``Is the application signed?'' $\rightarrow$  "Yes"
+\end{itemize}
+
+\textbf{Behavioral}
+
+Questions about required actions, step-by-step procedures, or compliance workflows. Answers should list actionable steps or describe procedural consequences, and must reference the element IDs that correspond to each step or requirement. Procedural questions evaluate whether the document contains the instructions, forms, or fields needed to complete a process.
+
+\medskip
+\textit{Examples:}
+\begin{itemize}
+  \item ``How to renew the license?'' $\rightarrow$ "1. Fill renewal form 2. Attach photo ID 3. Pay fee"
+  
+ 
+\end{itemize}
+\end{tcolorbox}
+
+% ---------- Reasoning color (more orangish - medium) ----------
+% ---------- Reasoning color (bright true orange) --------
+\definecolor{ColorReasoning}{RGB}{240, 187, 129} 
+\definecolor{ColorReasoning}{RGB}{255, 244, 232}% pure bright orange
+\definecolor{ColorReasoningTitle}{RGB}{229, 155, 71} % vivid title orange
+
+\tcbset{
+  prompt_reasoning/.style={
+    myprompt,
+    colback=ColorReasoning!35,              % brighter fill
+    colframe=ColorReasoning!80!black,       % slight shading
+    boxed title style={
+      colback=ColorReasoningTitle!90,       % vivid title bar
+      colframe=ColorReasoningTitle!90
+    },
+    coltitle=white
+  }
+}
+\begin{tcolorbox}[prompt_reasoning, title=Reasoning QA Taxonomy]
+
+\textbf{Abstractive \& Summarisation}
+
+Higher-level questions that require synthesising content from multiple elements into a concise, human-readable answer.
+Summarisation asks for a short synthesis of a policy/paragraph; abstractive items may require combining or rephrasing multiple evidence spans (but the \texttt{phrases} field must still contain verbatim substrings used as anchors).
+
+\medskip
+\textit{Examples:}
+\begin{itemize}
+  \item ``Give a short summary of the delivery exceptions.''
+  $\rightarrow$ ``Deliveries delayed for severe weather and customs holds; contact support for re-scheduling.''
+\end{itemize}
+
+\vspace{6pt}
+\textbf{Comparative \& Calculation}
+
+Questions that require comparing values across elements or performing small calculations using explicit numeric spans. Always cite the specific element IDs used for the comparison or calculation and include the verbatim numeric phrases.
+
+\medskip
+\textit{Examples:}
+\begin{itemize}
+  \item ``Which plan is cheaper per month, Plan A or Plan B? Show numbers.'' 
+  $\rightarrow$ ``Plan A :Rs. 199/month vs Plan B :Rs. 249/month; Plan A is cheaper.''
+  
+
+\end{itemize}
+
+\vspace{6pt}
+\textbf{Counterfactual}
+
+Hypothetical ``what-if'' questions that ask the model to reason about alternative scenarios or consequences when a document condition changes.
+Answers should be concise, logically derived, and cite the clause(s) or elements that justify the inference when possible.
+
+\medskip
+\textit{Examples:}
+\begin{itemize}
+  \item ``If the delivery address is changed after dispatch, what is the likely outcome?''
+  $\rightarrow$ ``Delivery may be rerouted at cost to the sender or returned to sender if already shipped.''
+\end{itemize}
+
+\end{tcolorbox}
+
+
+
+\paragraph{Postprocessing for Layout-Aware Documents~\circnumpurple{1E} \\ }
+For each document, the model outputs a QA pair together with its corresponding line-level bounding boxes, extracted from the REPLICA \cite{replica2025} hierarchy. From this line-level information, we obtain both block-level and phrase-level bounding boxes through a two-stage postprocessing procedure described below.
+
+\textit{Block-Level Bounding Boxes:}
+REPLICA \cite{replica2025} provides block-level bounding boxes directly, together with a hierarchical mapping from each line to its parent block. For every predicted line, we use this hierarchy to identify its corresponding block in the Fid-HTML.
+
+\textit{Phrase-level Bounding Boxes:}
+The model outputs the key phrase along with HTML span IDs that correspond to the matched text along with the QA pair. We retrieve the HTML content of these IDs to obtain the exact words that appear in the predicted line. We combine two sources of word-level geometry: docTR \cite{doctr2021} which provides reliable text content and word boxes, and Hi-SAM \cite{ye2024hi}, which offers more accurate and visually aligned word bounding boxes. By aligning docTR’s OCR words with Hi-SAM’s precise boxes, we obtain accurate bounding boxes of words.
+To obtain the phrase bounding box, we match the generated key phrase against the OCR words present in the predicted line. When a word appears multiple times within the same line and leads to ambiguous matches, the corresponding QA pair is discarded to avoid incorrect grounding. For valid cases, we gather the matched words and merge their adjacent Hi-SAM derived word boxes to obtain a unified phrase-level bounding region. This process ensures that phrase-level regions are grounded precisely to the accurate answer text.
+
+\textit{Segmentation masks:}
+With the finalized phrase, line, and block-level bounding boxes, we use Hi-SAM to obtain the corresponding segmentation masks. Hi-SAM provides a tight polygonal mask of the bounding box region that adheres to the true shape of the text, ensuring accurate segmentation even for small fonts, irregular spacing, or visually complex regions.
+
+
+\begin{figure}[H] 
+    \centering
+    \includegraphics[width=\textwidth]{figs/supp/PostProcessing.png}
+    \caption{
+       Post Processing for Layout Aware Documents
+    }
+    \label{fig:layoutaware_docs_postproceeing}
+\end{figure}
+
+
+\subsection{Curved Text Documents}
+
+
+\begin{figure}[H]   % Use H to force exact placement
+    \centering
+    \includegraphics[width=\linewidth]{figs/supp/curved_documents.pdf}
+    \caption{
+       Grounded QA generation pipeline for Curved-Text Documents
+    }
+    \label{fig:curved_docs}
+\end{figure}
+
+\paragraph{QA Prompt Specification for Curved Text Documents}
+We design a prompt for curved text documents where QA generation is driven solely on the  highlighted text regions in the document. Each prompt may contain one or two highlighted irregular regions, and questions must be formed strictly from the content visible within these highlighted regions. This setup ensures that QA pairs remain grounded in the actual curved, skew and irregular texts.
+
+\begin{tcolorbox}[prompt_procedural, title=Prompt for Curved Text Documents]
+
+\textbf{Input:} \\
+A document image with a \emph{highlighted curved or irregular text region}.  
+The highlighted region may contain warped, slanted, circular, semi-circular,skewed or otherwise non-linear text.
+
+\vspace{0.8em}
+
+\textbf{Task:} \\
+Generate question–answer pairs strictly from the highlighted curved text.  
+The model must ignore all unhighlighted parts of the document.
+
+\vspace{0.8em}
+
+\textbf{Instructions:}
+\begin{itemize}
+    \item Extract the exact text from the highlighted curved region.
+    \item Generate QA pairs only if the highlighted text contains meaningful, interpretable content.
+    \item Do \textbf{not} use or reference any text outside the highlighted region.
+    \item If the highlighted text is unreadable, too short, or cannot support a valid question, return \textbf{zero} QA pairs.
+    \item All generated questions must be answerable directly from the curved text itself.
+\end{itemize}
+
+\vspace{0.8em}
+
+\textbf{Output Format:}
+\begin{verbatim}
+{
+  "qa_pairs": [
+    {
+      "question": "What milestone is being celebrated at the annual fest?",
+      "answer": "5th Year Celebrations",
+    }
+  ]
+}
+\end{verbatim}
+
+If no valid QA pairs can be generated:
+\begin{verbatim}
+{
+  "qa_pairs": []
+}
+\end{verbatim}
+
+\end{tcolorbox}
+\subsection{Charts}
+\textbf{Rendering-Based Element Extraction:~}\circnumpurple{3B}~
+To obtain precise geometric information, we process charts at render time. We execute each chart’s script using libraries such as Matplotlib\cite{Hunter:2007}, Seaborn\cite{Waskom2021}, \cite{vanderplas2018altair}, and Plotly\cite{plotly}, and intercept the rendering pipeline to capture low-level drawing operations. For examples,  Matplotlib-based \cite{Hunter:2007} scripts, we access the internal renderer via:
+\[
+\texttt{renderer} = \texttt{fig.canvas.get\_renderer()}
+\]
+Using this, we query all visible artists on the chart  such as Axes, Patch (bars, pie wedges, areas), Line2D (lines, markers), Text (titles, labels, ticks), and Collection (scatter/heatmap elements). Each artist exposes a \textit{
+get\_window\_extent(renderer)
+} method, which returns the exact bounding box used to draw that element on the final image. 
+
+\begin{figure}[H]   % Use H to force exact placement
+    \centering
+    \includegraphics[width=0.95\linewidth]{figs/supp/chart_docs.pdf}
+    \caption{
+       Grounded QA generation pipeline for Charts
+    }
+    \label{fig:chart_docs}
+\end{figure}
+
+\noindent All extracted elements, together with their bounding boxes, textual content, and element types, are stored in a metadata JSON \cite{RFC4627_json} file \circnumpurple{3D}. This JSON serves as a complete specification of the chart: each element is assigned a unique ID, and its geometric and semantic values are recorded. The rendered chart image and the corresponding JSON are later passed to the VLM for QA generation.
+
+
+   
+
+\begin{tcolorbox}[prompt_structural, title=Example: Input Metadata JSON]
+\texttt{\{}\\
+\hspace*{1.5em}{"globals": \{}\\
+\hspace*{3em}{"axes": [}\\
+\hspace*{4.5em}{\{}\\
+\hspace*{6em}{"title": \{ "bbox": "1", "text": "U.S. views of Education" \},}\\
+\hspace*{6em}{"xlabel": \{ "bbox": "2", "text": "Year" \},}\\
+\hspace*{6em}{"ylabel": \{ "bbox": "3", "text": "Percentage" \},}\\
+\hspace*{6em}{"xticks": [}\\
+\hspace*{7.5em}{\{ "text": "2005", "bbox": "4" \},}\\
+\hspace*{7.5em}{\{ "text": "2015", "bbox": "9" \}}\\
+\hspace*{6em}{],}\\
+\hspace*{6em}{"legend": \{}\\
+\hspace*{7.5em}{"frame": [763,79,893,146],}\\
+\hspace*{7.5em}{"labels": [}\\
+\hspace*{9em}{\{ "bbox": "10", "text": "Dissatisfied" \},}\\
+\hspace*{9em}{\{ "bbox": "11", "text": "Satisfied" \}}\\
+\hspace*{7.5em}{]\}}\\
+\hspace*{3em}{\}]}\\
+\hspace*{1.5em}{\},}\\[6pt]
+\hspace*{1.5em}{"items": [}\\
+% ---------------- FIRST ITEM ----------------
+\hspace*{3em}{\{}\\
+\hspace*{4.5em}{"type": "bar",}\\
+\hspace*{4.5em}{"marker\_bbox": "12",}\\
+\hspace*{4.5em}{"x\_tick\_text": "2005",}\\
+\hspace*{4.5em}{"x\_tick\_bbox": "13",}\\
+\hspace*{4.5em}{"y\_value": 35.0,}\\
+\hspace*{4.5em}{"y\_tick\_bbox": "14",}\\
+\hspace*{4.5em}{"extra": \{}\\
+\hspace*{6em}{"orientation": "v", "stack\_group": null,}\\
+\hspace*{6em}{"data": \{ "height": 35.0, "value": 35.0, "width": 0.40, "x": 2004.6, "y": 0.0 \}}\\
+\hspace*{4.5em}{\}}\\
+\hspace*{3em}{\},}\\[4pt]
+% ---------------- SECOND ITEM ----------------
+\hspace*{3em}{\{}\\
+\hspace*{4.5em}{"type": "bar",}\\
+\hspace*{4.5em}{"marker\_bbox": "27",}\\
+\hspace*{4.5em}{"x\_tick\_text": "2015",}\\
+\hspace*{4.5em}{"x\_tick\_bbox": "28",}\\
+\hspace*{4.5em}{"y\_value": 34.0,}\\
+\hspace*{4.5em}{"y\_tick\_bbox": "29",}\\
+\hspace*{4.5em}{"extra": \{}\\
+\hspace*{6em}{"orientation": "v", "stack\_group": null,}\\
+\hspace*{6em}{"data": \{ "height": 34.0, "value": 34.0, "width": 0.40, "x": 2014.6, "y": 0.0 \}}\\
+\hspace*{4.5em}{\}}\\
+\hspace*{3em}{\},}\\[4pt]
+% ---------------- THIRD ITEM ----------------
+\hspace*{3em}{\{}\\
+\hspace*{4.5em}{"type": "bar",}\\
+\hspace*{4.5em}{"marker\_bbox": "30",}\\
+\hspace*{4.5em}{"x\_tick\_text": "2005",}\\
+\hspace*{4.5em}{"x\_tick\_bbox": "31",}\\
+\hspace*{4.5em}{"y\_value": 65.0,}\\
+\hspace*{4.5em}{"y\_tick\_bbox": "32",}\\
+\hspace*{4.5em}{"extra": \{}\\
+\hspace*{6em}{"orientation": "v", "stack\_group": null,}\\
+\hspace*{6em}{"data": \{ "height": 65.0, "value": 65.0, "width": 0.40, "x": 2005.0, "y": 0.0 \}}\\
+\hspace*{4.5em}{\}}\\
+\hspace*{3em}{\},}\\[4pt]
+\hspace*{4.5em}.
+
+\hspace*{4.5em}.
+
+\hspace*{4.5em}.
+\end{tcolorbox}
+\paragraph{QA Prompt Specification for Charts}
+
+We design a structured chart-prompt format that captures all visual and semantic elements of a plot, including axes, tick labels, legends, and data marks. This metadata representation ensures that every graphical component is explicitly annotated. Such a unified prompt format allows models to interpret over charts consistently across diverse chart types.
+
+\begin{tcolorbox}[myprompt, title=Chart QA Prompt --- Input \& Task Specification]
+
+    \textbf{Inputs}
+    \begin{itemize}
+      \item One chart image (Bar, Line, Pie, Donut, Scatter etc.).
+      \item One Element-ID JSON mapping all visible chart components 
+            (titles, axes, ticks, legends, bars, lines, points, slices) 
+            to unique string IDs (e.g., ``1'', ``2'', ``37'').
+      \item The Element-ID JSON is the \textbf{only} source of truth for evidence IDs.
+    \end{itemize}
+    
+    \medskip
+    \textbf{Task}
+    \begin{itemize}
+      \item Generate \textbf{upto 10} diverse, non-overlapping QA pairs grounded in the chart.
+      \item Cover at least one QA from each category:
+      \begin{enumerate}
+        \item Comparison
+        \item Ranking
+        \item Top-k list
+        \item Aggregation \& Arithmetic
+        \item Threshold check
+        \item Ratio
+        \item Yes/No
+        \item Counting
+        \item Color-based
+        \item Factual
+        \item Summarisation
+        \item Chart type identification
+      \end{enumerate}
+      \item Questions must be answerable using the visible chart content.
+      \item Ensure a mix of short and medium-length answers (some with brief explanation).
+      \item Avoid template-like repetition; diversify phrasing and chart elements.
+    \end{itemize}
+    
+    \medskip
+    \textbf{Valid Chart Types}
+    \noindent\small
+    Area Chart, Bar Chart, Box Plot, Bubble Chart, Candlestick Chart,
+    Donut Chart, Funnel Chart, Heatmap, Histogram,
+    Line Chart, Pie Chart,
+    Radar Chart, Ring Chart, Rose Chart, Scatter Plot,  Stem Plot, Tornado Chart, Treemap, Violin Plot.
+    
+\end{tcolorbox}
+
+\begin{tcolorbox}[myprompt, title=Chart QA Prompt -- Evidence \& Grounding Rules]
+
+    \textbf{Element-ID Usage}
+    \begin{itemize}
+      \item Use only IDs present in the Element-ID JSON; never fabricate IDs.
+      \item IDs are strings (e.g., ``24'' not 24).
+      \item For every QA, include the \textbf{minimal sufficient} evidence IDs.
+    \end{itemize}
+    
+    \medskip
+    \textbf{Universal Mark Evidence Rule}
+    For every referenced chart element:
+    \begin{enumerate}
+        \item Always include the mark’s own bbox ID
+              (e.g., \texttt{marker\_bbox}, \texttt{point\_bbox}, \texttt{wedge\_bbox}, 
+              \texttt{rect\_bbox}, \texttt{cell\_bbox}, \texttt{line\_bbox}, 
+              \texttt{area\_bbox}, \texttt{candle\_bbox}).
+        \item Include value reference IDs when present  
+              (\texttt{value\_label\_bbox} preferred; else \texttt{y\_tick\_bbox}).
+        \item Include category/position reference IDs when relevant  
+              (\texttt{x\_tick\_bbox} for Cartesian charts; slice/legend label for radial charts).
+    \end{enumerate}
+    
+    \medskip
+    \textbf{When Questions Involve Multiple Marks}
+    \begin{itemize}
+      \item Provide a complete evidence set for each mark involved 
+            (comparisons, rankings, ratios, aggregations).
+    \end{itemize}
+    
+
+\end{tcolorbox}
+\begin{tcolorbox}[myprompt, title=Chart QA Prompt --- Output Format \& Final Constraints]
+
+    \textbf{Output Format}
+    \begin{itemize}
+      \item Return \textbf{one} valid UTF-8 JSON array with upto \textbf{10 objects}.
+      \item Each QA object must contain:
+    \end{itemize}
+    
+    \begin{verbatim}
+    {
+      "qa_number": int (1..10),
+      "category": string,
+      "question": string,
+      "answer": string/number/array,
+      "ids": [ "<element_id>", ... ]
+    }
+    \end{verbatim}
+    
+    \textbf{Category Values:}
+    \small
+    comparison, ranking, top\_k, aggregation, threshold, ratio, yes\_no,
+    counting, color\_based, factual.
+    
+    \medskip
+    \textbf{Diversity Requirements}
+    \begin{itemize}
+      \item No duplicate questions.
+      \item Spread references across different marks/years/series.
+      \item Mix concise and explanatory answers.
+    \end{itemize}
+    
+    \medskip
+    \textbf{Final Checks}
+    \begin{itemize}
+      \item Upto 10 QA objects.
+      \item IDs are valid and appear in the JSON.
+      \item Evidence strictly reflects the minimal required set.
+      \item No extra commentary, no markdown fences.
+      \item Response ends immediately after the closing bracket \texttt{]}.
+    \end{itemize}
+
+\end{tcolorbox}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\linewidth]{figs/supp/chartspostprocessing.drawio.png}
+    \caption{
+    \circnumblueb{1} We obtain the bounding boxes of the answer evidence, such as \textit{August} and \textit{October}. 
+    \circnumblueb{2} We extract all valid text regions from the chart. 
+    \circnumblueb{3} For each detected word from \circnumblueb{2}, we check its intersection with the bounding boxes from \circnumblueb{1}. 
+    Any word that lies completely within an evidence bounding box is considered a valid evidence text region.
+    }
+    \label{fig:chartspostprocessing}
+    
+\end{figure}
+
+\textbf{Postprocessing of Chart Elements} \circnumpurple{3F}
+Once we obtain the bounding boxes of all text elements from the rendering stage, we generate segmentation masks using Hi-SAM. Each bounding box is passed to Hi-SAM, which produces a precise mask for the corresponding chart element. This provides pixel-level grounding for all chart-based QA pairs, ensuring that each referenced text element has an accurate segmentation mask  (see \cref{fig:chartspostprocessing}). 
+
+\subsection{Data Verification}
+
+We apply a two-stage verification process to ensure that all grounded QA pairs in our dataset are both textually correct and layout-consistent.
+In the first stage, we check semantic alignment between the predicted answer and the OCR text from its grounded regions. For each answer span, we compute the sentence embedding similarity between the answer text and the OCR text extracted from the corresponding bounding boxes. QA pairs whose similarity falls below a fixed threshold are removed, as they indicate unreliable text-region alignment.
+
+In the second stage, we verify answer completeness and grounding consistency using an LLM-as-a-Judge ~\cite{deepseekai2025deepseekr1incentivizingreasoningcapability,zheng2023judging}. Each QA pair, along with its key phrases, the bounding boxes of the answer, and the full document HTML as context are given as input to the LLM. Because we explicitly know which phrase maps to which region, the LLM evaluates whether (i) all essential parts of the answer are represented in the phrases, (ii) each phrase is correctly grounded in the OCR content of its assigned bounding boxes, and (iii) no part of the answer contradicts the surrounding HTML content. QA pairs are discarded if any phrase is missing, partially covered, incorrectly mapped, or inconsistent with the extracted text.
+
+In a similar manner, we also verify chart-based QA pairs by checking answer correctness against the structured chart-metadata JSON using a VLM. For curved-text documents, we use a VLM, which receives the image and QA pair and determines whether the answer aligns with the text in the image. 
+Together, these stages ensure that retained QA pairs are semantically valid, fully covered by their supporting text regions, and faithfully grounded in the document layout.
+
+\begin{tcolorbox}[prompt_structural, title=Verification Examples (Stage 1 \& Stage 2)
+]
+
+
+{\{}\\
+% ---------------- Example 1 -----------------
+\hspace*{3em}{\{}\\
+\hspace*{4.5em}{``id'':``1'',}\\
+\hspace*{4.5em}{``question'': ``What are all the documents are required to complete a child’s school enrolment?'',}\\
+\hspace*{4.5em}{``answer'':``You just need a birth certificate and the latest school report'',}{\color{red}\textbf{\texttimes}}\\
+\hspace*{4.5em}{``answer\_html\_id'': [``4.21'',``4.22'',``4.23'',``4.24''],}\\
+\hspace*{4.5em}{``phrases'': [ ``birth certificate'',``latest school report'']}\\
+\hspace*{3em}{\},}\\[4pt]
+% ---------------- Example 2 -----------------
+\hspace*{3em}{\{}\\
+\hspace*{4.5em}{``id'': ``2'',}\\
+\hspace*{4.5em}{``question'': ``What are all the documents are required to complete a child’s school enrolment?'',}\\
+\hspace*{4.5em}{``answer'': ``You need to submit birth certificate and proof of address are required.'',}{\color{red}\textbf{\texttimes}}\\
+\hspace*{4.5em}{``answer\_html\_id'': [``4.21'',``4.22''],}\\
+\hspace*{4.5em}{``phrases'': [``Birth certificate'',``proof of address'']}\\
+
+\hspace*{3em}{\},}\\[4pt]
+% ---------------- Example 3 -----------------
+\hspace*{3em}{\{}\\
+\hspace*{4.5em}{``id'': ``3'',}\\
+\hspace*{4.5em}{``question'': ``What are all the documents are required to complete a child’s school enrolment?'',}\\
+\hspace*{4.5em}{``answer'':``You have to provide birth certificate and proof of address, and immunisation.'',}{\color{red}\textbf{\texttimes}}\\
+\hspace*{4.5em}{``answer\_html\_id'': [``4.21'',``4.22'',``7.02''],}\\
+\hspace*{4.5em}{``phrases'': [``Birth certificate'',``proof of address'',``immunisation record'']}\\
+\hspace*{3em}{\},}\\[4pt]
+% ---------------- Example 4 -----------------
+\hspace*{3em}{\{}\\
+\hspace*{4.5em}{``id'': ``4'',}\\
+\hspace*{4.5em}{``question'': ``What are all the documents are required to complete a child’s school enrolment?'',}\\
+\hspace*{4.5em}{``answer'':``We need Birth certificate, proof of address, immunisation record and a passport copy for                             international students.'',}{\color{green}\checkmark}\\
+\hspace*{4.5em}{``answer\_html\_id'': [``4.21'',``4.22'',``4.23'',``4.24''],}\\
+\hspace*{4.5em}{``phrases'':``Birth certificate'', ``proof of address'', ``immunisation record'', ``passport copy for                             international students''}\\
+\hspace*{1.5em}\texttt{]}\}\\
+\end{tcolorbox}
+
+
+\begin{table}[H]
+\centering
+\small
+\setlength{\tabcolsep}{6pt}
+\renewcommand{\arraystretch}{1.1}
+
+\begin{tabular}{|l|c|c|l|}
+\hline
+\textbf{ID} & \textbf{Stage 1} & \textbf{Stage 2} & \textbf{Reason} \\ \hline
+
+1 & {\color{red}\textbf{\texttimes}} & -- 
+& Wrong answer content $\rightarrow$ low similarity. \\ \hline
+
+2 & {\color{green}\checkmark} & {\color{red}\textbf{\texttimes}}
+& Missing mandatory phrases $\rightarrow$ incomplete answer. \\ \hline
+
+3 & {\color{green}\checkmark} & {\color{red}\textbf{\texttimes}}
+& Incorrect bbox $\rightarrow$ phrase--region mismatch. \\ \hline
+
+4 & {\color{green}\checkmark} & {\color{green}\checkmark}
+& All phrases and bboxes correctly grounded. \\ \hline
+
+\end{tabular}
+
+\end{table}
+
+
+
+
+% --------------- BASELINES AND EVALUATION METRICS--------------
+\section{Baselines Implementation}
+
+Different VLM families vary in how reliably they follow structured-output instructions, often producing the same information in different formats. To ensure fair evaluation across all baselines, we adopt a \emph{model family aware} prompting strategy.
+
+
+
+\subsection{Prompts}
+
+\noindent
+This family-aware prompting strategy ensures that each model is evaluated
+under conditions that match its strengths, resulting in fairer comparison
+and more robust grounding across diverse VLM families.
+
+\definecolor{EvalBody}{RGB}{236, 244, 232}
+\definecolor{EvalTitle}{RGB}{132, 153, 79}
+\tcbset{
+  baseline_prompt_style/.style={
+    myprompt,
+    colback=EvalBody,                    % light background
+    colframe=EvalTitle,                    % dark border
+    boxed title style={
+      colback=EvalTitle,                  % light title background
+      colframe=EvalBody                   % dark title border
+    },
+    coltitle=white
+  }
+}
+
+
+% -----------------------------------------------------------
+\paragraph{OpenAI Models}\mbox{}\\[4pt]
+
+\begin{tcolorbox}[baseline_prompt_style, title=GPT-4o\cite{hurst2024gpt} and GPT-5\cite{openai_gpt5_2025}]
+You are a vision-language model performing document question answering with spatial grounding.
+\begin{itemize}[leftmargin=10pt]   
+
+    \item  Given the document image \texttt{<IMAGE>} and the question \texttt{<QUESTION>}, identify all answer span(s) that appear in the image.
+
+    \item For each span, extract:
+        The exact evidence as it appears in the document,
+        The bounding box in pixel coordinates: \texttt{[x\_min, y\_min, x\_max, y\_max]}.
+
+
+    \item Return your output as a valid JSON object:
+\begin{verbatim}
+{
+  "answer" : "<ANSWER>" ,
+  "answer_spans": [
+    {
+      "text": "<exact evidence from the document>",
+      "bbox": [x_min, y_min, x_max, y_max]
+    } ,
+    {
+      "text": "<exact evidence from the document>",
+      "bbox": [x_min, y_min, x_max, y_max]
+    }
+  ]
+}
+\end{verbatim}
+
+\end{itemize}
+
+\textbf{Rules:}
+\begin{itemize}[leftmargin=10pt]
+    \item Output valid JSON only (no markdown, commentary, or explanations).
+    \item Every "bbox" must contain four numeric pixel values.
+    \item Do not fabricate or paraphrase text; only use evidence present in the document.
+    \item If no answer is present in the document, return: \texttt{\{ "answer\_spans": [] \}}.
+\end{itemize}
+
+\end{tcolorbox}
+
+
+% -----------------------------------------------------------
+\paragraph{Google Models}\mbox{}\\[4pt]
+The prompt for this model family is constructed with reference to its official implementation \cite{google_vertex_bbox_2025}.
+% PROMPT START
+\begin{tcolorbox}[baseline_prompt_style, title=Gemini 2.5 Pro \cite{comanici2025gemini} and Gemma 3 \cite{team2025gemma}]
+
+
+You are a vision-language model performing document question answering with spatial grounding. \\
+
+Given the document \texttt{<IMAGE>} and the \texttt{<QUESTION>} below: 
+\begin{itemize}[leftmargin=10pt]   
+
+    \item Identify all span(s) in the image that answer the question. 
+    \item Return your answer as a JSON object with the following structure:
+\end{itemize}
+    
+\begin{verbatim}
+{
+  "answer" : "<ANSWER>" ,
+  "answer_spans": [
+    {
+      "text": "<exact evidence from the document>",
+      "box_2d": [y_min, x_min, y_max, x_max]
+    } ,
+    {
+      "text": "<exact evidence from the document>",
+      "box_2d": [y_min, x_min, y_max, x_max]
+    }
+  ]
+}
+\end{verbatim}
+    
+\textbf{Rules}: 
+\begin{itemize}[leftmargin=10pt]
+    \item Return valid JSON only (no markdown, code fences, or explanations). 
+    \item  Each "bbox" must contain four numerical values in pixel coordinates only. 
+    \item  If multiple spans exist, include each as a separate object in the "answer\_spans" list. 
+    \item  If there is no visible answer, return: 
+\begin{verbatim} 
+{ "answer_spans": [] } 
+\end{verbatim}
+\end{itemize}
+\end{tcolorbox}
+
+% -----------------------------------------------------------
+\paragraph{OpenGVLab Models}\mbox{}\\[4pt]
+
+
+\begin{tcolorbox}[baseline_prompt_style, title=InternVL3.5 8B \cite{wang2025internvl3_5}]
+
+You are a vision-language model performing document question-answering with spatial grounding. \\
+
+Given the document \texttt{<IMAGE>} and the \texttt{<QUESTION>}: \\
+
+\textbf{Your tasks: }
+\begin{itemize}[leftmargin=10pt]   
+    \item Identify all span(s) in the document that answer the question. 
+
+    \item For each span, extract:
+    \begin{itemize}
+        \item The exact evidence as present in the document.
+        \item Its bounding box in the format: \texttt{[x\_min, y\_min, x\_max, y\_max]}.
+    \end{itemize}
+
+    \item Produce the answer in an \textbf{interleaved style}: mix your normal explanation with the extracted spans and their bounding boxes inserted at the appropriate points.
+
+    \item If the answer contains multiple spans, present them sequentially in the same interleaved format.
+
+    \item Do NOT invent any unwanted text; the exact evidence as present in the document. At the end of your response, clearly list all extracted answer spans in a structured form:
+
+\end{itemize}
+
+\begin{verbatim}
+Span k: "<text>"  [x_min, y_min, x_max, y_max]
+\end{verbatim}
+\end{tcolorbox}
+% PROMPT END
+
+
+
+% -----------------------------------------------------------
+\paragraph{Qwen Models}\mbox{}\\[4pt]
+
+\begin{tcolorbox}[baseline_prompt_style, title=Qwen3-VL 8B \cite{qwen3technicalreport}]
+You are a vision-language model performing document question-answering with spatial grounding. \\
+
+Given the document \texttt{<IMAGE>} and the \texttt{<QUESTION>}: \\
+
+\textbf{Your tasks: }
+\begin{itemize}[leftmargin=10pt]   
+    \item Identify all span(s) in the document that answer the question. 
+
+    \item For each span, extract:
+    \begin{itemize}
+        \item The exact evidence as present in the document.
+        \item Its bounding box in the format: \texttt{[x\_min, y\_min, x\_max, y\_max]}.
+    \end{itemize}
+
+    \item Produce the answer in an \textbf{interleaved style}: mix your normal explanation with the extracted spans and their bounding boxes inserted at the appropriate points.
+
+    \item If the answer contains multiple spans, present them sequentially in the same interleaved format.
+
+    \item Do NOT invent any unwanted text; the exact evidence as present in the document. At the end of your response, clearly list all extracted answer spans in a structured form:
+
+\end{itemize}
+
+\begin{verbatim}
+Span k: "<text>"  [x_min, y_min, x_max, y_max]
+\end{verbatim}
+\end{tcolorbox}
+% PROMPT END
+
+
+% -----------------------------------------------------------
+\paragraph{Microsoft Models}\mbox{}\\[4pt]
+
+\begin{tcolorbox}[baseline_prompt_style, title=Kosmos 2.5 Chat \cite{lv2023kosmos}]
+
+You are a model that answers questions about a document image with grounding.
+
+Given the \texttt{<IMAGE>} and \texttt{<QUESTION>}: \\
+
+\textbf{Your tasks:}
+\begin{itemize}[leftmargin=10pt]
+    \item Find all text spans in the image that answer the question.
+
+    \item For each span, provide:
+    \begin{itemize}
+        \item The exact evidence as present in the document.
+        \item Its bounding box: \texttt{[x\_min, y\_min, x\_max, y\_max]}.
+    \end{itemize}
+
+    \item Write your answer in an \textbf{interleaved style}: normal explanation mixed with the spans and their bounding boxes inserted at the right points.
+    \item Use only evidence text that is present in the image.
+    \item At the end, output a clean list:
+
+\begin{verbatim}
+Span k: "<text>" [x_min, y_min, x_max, y_max]
+\end{verbatim}
+
+\end{itemize}
+\end{tcolorbox}
+% PROMPT END
+
+
+% -----------------------------------------------------------
+\paragraph{Fine-Tuned Models (Ours)}\mbox{}\\[4pt]
+
+
+\begin{tcolorbox}[baseline_prompt_style, title=InternVL3.5 (ft.) and Qwen3-VL (ft.)]
+
+You are a vision-language model performing document question-answering with spatial grounding. \\
+
+Given the document \texttt{<IMAGE>} and the \texttt{<QUESTION>}: \\
+
+
+\textbf{Your tasks:}
+\begin{itemize}[leftmargin=10pt]
+
+    \item Identify all answer span(s) in the document.
+
+    \item For every span that appears in the document, output it in the following interleaved format:
+    \begin{itemize}
+        \item 
+\begin{verbatim}
+<e>EVIDENCE_FROM_DOCUMENT</e><bbox>x_min,y_min,x_max,y_max</bbox>
+\end{verbatim}
+    \end{itemize}
+
+    \item Return the answer in an interleaved format, mixing your reasoning text with groundING spans.
+    \item If multiple spans are needed, list them sequentially using the same format:
+
+\begin{verbatim}
+...<e>span1</e><bbox>...</bbox>...<e>span2</e><bbox>...</bbox>...
+\end{verbatim}
+
+    \item Use explanatory text in between if needed, but every piece of evidence taken from the document must be wrapped using \texttt{<e>...</e>} with its corresponding bounding box using \texttt{<bbox>...</bbox>}. \\
+Do not fabricate text. Only include spans that appear in the document.
+\end{itemize}
+\end{tcolorbox}
+% PROMPT END
+
+% -----------------------------------------------------------
+\paragraph{\modelName Variants}\mbox{}\\[4pt]
+
+\begin{tcolorbox}[baseline_prompt_style, title= \modelName-I and \modelName-Q]
+
+
+You are a vision–language model for document question answering with segmentation-based grounding.
+
+Given the \texttt{<IMAGE>} and the \texttt{<QUESTION>}: \\
+
+\begin{itemize}[leftmargin=10pt]
+    \item Identify all answer spans in the document. 
+    \item After every span that appears in the document, append a \texttt{[GROUND]} token.
+    \item Return the answer as normal explanatory text interleaved with \texttt{[GROUND]} tokens. 
+    \item For every span that apperars in the document output it in the following interleved format: 
+
+\begin{verbatim}
+...<e>span1</e>[GROUND]...<e>span2</e>[GROUND]...
+\end{verbatim}
+    \item Do not output bounding boxes, coordinates or any other metadata only the answer text with the \texttt{[GROUND]} markers placed immediately after each grounded span.
+
+\end{itemize}
+\end{tcolorbox}
+
+
+\section{G-Eval for Answer Quality (AQ)}
+\label{sec:geval_justification}
+
+~~~~In our evaluation protocol for BoundingDocs (Test) and \benchmarkName, we adopt \textbf{G-Eval}~\cite{liu2023geval} as the  metric for Answer Quality (AQ) instead of relying on traditional metrics like Exact Match (EM) \cite{rajpurkar-etal-2016-squad} or ANLS \cite{singh2019towards}. As these metrics have limitations in evaluating abstractive answers common in document VQA.
+
+\noindent Lexical metrics are sensitive, for example, a correct prediction of "properties assistant" receiving an EM score of 1.0, a  similar answer like "Properties Assistant" (with a capital 'P') or "The properties assistant" would receive a score of 0.0. This score fails to capture the model's correct understanding.
+
+\noindent For abstractive question answers evaluated with BLEU-4 \cite{papineni-etal-2002-bleu}, this problem is even more severe. As shown by the real examples shown in Table \ref{tab:geval_failures}, models frequently provide correct answers that receive a BLEU-4 score of 0.0. 
+For examples, this happens when the model's answer is a concise fact (e.g., "20") while the ground truth is a descriptive sentence ("The number of users decreased is 20").
+
+\noindent G-Eval \cite{liu2023geval}, by using an LLM as a judge, evaluates the \textbf{semantic equivalence} and \textbf{factual consistency} of the prediction. It correctly identifies the answers (see \cref{tab:geval_failures}) as being semantically correct, aligning far more closely with human judgment. This provides a much fairer and more robust measure of a model's abilities.
+
+
+\noindent For our implementation, we use \textbf{DeepSeek-R1- 70B}~\cite{deepseekai2025deepseekr1incentivizingreasoningcapability} as the LLM powering G-Eval. Our G-Eval implementation was configured for robustness and reproducibility. We set the passing threshold at 0.5, meaning any answer with a semantic similarity score of 0.5 or higher was considered correct. The final Answer Quality (AQ) score is computed as the average of all successfully evaluated QA pairs. The specific prompt template used to guide the model's evaluation 
+
+
+\definecolor{EvalTitle}{RGB}{197, 153, 182}   % FF8FB7
+\definecolor{EvalBody}{RGB}{255, 247, 243}    % FDEDED
+\tcbset{
+  geval_prompt_style/.style={
+    myprompt,
+    colback=EvalBody,                    % light background
+    colframe=EvalTitle,                    % dark border
+    boxed title style={
+      colback=EvalTitle,                  % light title background
+      colframe=EvalBody                   % dark title border
+    },
+    coltitle=white
+  }
+}
+
+\begin{tcolorbox}[geval_prompt_style, title=Prompt used for G-Eval]
+You are an evaluator model. Follow the rubric below strictly to score the semantic equivalence between a Ground Truth and a Prediction. \\
+
+\textbf{Your tasks:}
+\begin{itemize}[leftmargin=10pt]
+
+    \item \textbf{Semantic Focus:}
+    \begin{itemize}
+        \item Evaluate only the textual content produced by the model. Ignore layout information such as bounding box coordinates, pixel positions, or any other visual metadata.
+    \end{itemize}
+
+    \item \textbf{Meaning Preservation:}
+    \begin{itemize}
+        \item Determine whether the predicted text expresses the same semantic information as the ground-truth reference.
+    \end{itemize}
+
+    \item \textbf{Tolerance:}
+    \begin{itemize}
+        \item Minor variations in punctuation, casing, or formatting that do not change meaning should be accepted.
+    \end{itemize}
+
+    \item \textbf{Error Sensitivity:}
+    \begin{itemize}
+        \item Missing, substituted, or additional words that alter the meaning should be treated as errors.
+    \end{itemize}
+
+    \item \textbf{Numeric Content:}
+    \begin{itemize}
+        \item Numerical tokens should be evaluated as part of the textual content unless they clearly represent layout metadata (e.g., coordinates).
+    \end{itemize}
+
+\end{itemize}
+\end{tcolorbox}
+% PROMPT END
+
+
+
+% --- Table of G-Eval Justification Examples ---
+\begin{table}[H]
+\centering
+\renewcommand{\arraystretch}{1.3}
+
+
+\begin{tabularx}{\linewidth}{@{} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X c c c @{}}
+\toprule
+\textbf{Question} & \textbf{Ground Truth} & \textbf{Predicted Answer} & \textbf{BLEU-4} & \textbf{EM} & \textbf{G-Eval} \\
+\midrule
+
+% Example 1: Brittle EM
+...what role did franny kromminga have...
+& properties assistant
+& Properties Assistant 
+& 0.0000 & 0.0 & \textbf{Correct}
+\\
+
+% Example 2: Concise vs. Verbose
+...which year showed a decrease in the number of users...
+& the number of users decreased in 2020 where the count was 1038000...
+& 2020
+& 0.0000 & 0.0 & \textbf{Correct}
+\\
+
+% Example 3: Rephrasing (Math)
+...what is the difference in percentage points between the two age groups...
+& ...the difference is 12 percentage points as the share for 18-19 years old is 16\%, and for 20-24 years is 28\%.
+& 28\% - 16\% = 12\%
+& 0.0000 & 0.0 & \textbf{Correct}
+\\
+
+% Example 4: Trivial Formatting
+...where will the event take place...
+& the event will take place at '930 carnegie st'.
+& 930 carnegie st
+& 0.0154 & 0.0 & \textbf{Correct}
+\\
+
+% Example 5: Typo Correction
+...what is the intended purpose of this poster...
+& ...provide ' 1o tips for ', ' business ', ' online '...
+& ...provide ' 10 tips for ', ' online ', ' business '.
+& 0.2234 & 0.0 & \textbf{Correct}
+\\
+
+% Example 6: Factual Error (for contrast)
+...what is the total value of the top three countries combined...
+& ...total is 4960 billion dollars.
+& ...total value ... is 4657.90 billion dollars...
+& 0.0096 & 0.0 & \textbf{Incorrect}
+\\
+
+\bottomrule
+
+\end{tabularx}
+\caption{
+    Examples of Lexical Metric Failures:
+    These examples show semantically correct model predictions that receive near-zero scores from
+    traditional metrics (BLEU-4 / EM), demonstrating the need for a semantic metric like G-Eval (threshold \ge 0.5 ).
+}
+\label{tab:geval_failures}
+
+\end{table}
+% --- End of Table ---
+
+\section{More details on benchmarks and evaluations}
+\label{sec:benchmarks}
+
+We evaluate our models across four document grounding QA benchmarks. Below, we describe each benchmark and the evaluation followed for it.
+
+% -----------------------------------------------------------
+\subsection{BoundingDocs-Test}
+\label{sec:dataset_boundingdocs}
+
+The \textbf{BoundingDocs} ~\cite{giovannini2025boundingdocs} test split contains 4,832 documents and 13,351 question-answer pairs. However, our evaluation protocol required two significant filtering steps to align the dataset. 
+First, as our models are designed for single-page document processing, we filtered out all multi-page documents. Second, we observed Q/A pairs were in other than english so these were discarded. After applying these two filters, we then clean repeated documents and incomplete grounded QA pairs. From this filtered set, we obtain our final evaluation split 
+\noindent Dataset Statistics (Grounding): 
+\begin{itemize}
+    \item Images: 1,000
+    \item QA Pairs: 3,000
+\end{itemize}
+
+
+\noindent \textbf{Evaluation Protocol:} Our evaluation protocol for BoundingDocs~\cite{giovannini2025boundingdocs} assesses two aspects: grounding performance and answer quality \cite{zheng2023judging,li2024llms,tong2025g}. 
+\begin{itemize}
+    \item Grounding Performance: This is measured using F1 grounding score $\text{F1}_{\text{g}}$. A prediction is counted as a True Positive if the Intersection over Union (IoU) between the predicted and ground-truth bounding box is $\geq 0.5$.
+    \item Answer Quality (AQ): We use \textbf{G-Eval}~\cite{liu2023geval} as a unified semantic scoring metric. This approach provides a balanced semantic-spatial evaluation that complements simple lexical or structural measures.
+\end{itemize}
+\input{tables/supp/dogr_table}
+
+\subsection{DOGR-Bench}
+\label{sec:dataset_dogr}
+
+\textbf{DOGR}-Bench~\cite{zhou2025dogr} is  designed to evaluate the grounding and referring  capabilities of VLMs on document images. It features tasks that require models to not only answer questions but also provide spatial grounding for their answers.
+
+\noindent Dataset Statistics (Grounding): 
+\begin{itemize}
+    \item Images: 200
+    \item QA Pairs: 1,100
+\end{itemize}
+
+
+% --- This is your old 6.3, now moved inside 6.3.1 ---
+\paragraph{Evaluation Protocol:} The DOGR benchmark contains multiple task splits (GA, GR, GO, PA etc).  For our evaluation, we use only the split, which includes the three tasks that the DOGR paper~\cite{zhou2025dogr} designates for grounding capability: 
+\textit{(i) $G_a$}: Grounded Answer,
+\textit{(ii) $G_r$}: Grounded Reasoning, and
+\textit{(iii) $G_o$}: Grounded Open-ended Answer.
+These tasks contain plain-text questions and answers with bounding boxes.
+
+\noindent In the main paper, we reported $\text{F1}_{\text{g}}$ and Answer Quality (AQ) using G-Eval~\cite{liu2023geval} for DOGR. 
+In this section, we extend those results by following the exact DOGR evaluation protocol using Exact Match for $G_a$/$G_r$ and BLEU4 for $G_o$ and by reproducing the same table format as the original DOGR benchmark. 
+This ensures a fair and directly comparable evaluation using the same split and metrics defined in the benchmark. Our evaluation is bifurcated into two components as specified by DOGR: Text Answer Accuracy and Grounding Performance.
+
+\noindent \textbf{Text Answer Accuracy}:
+
+
+
+\begin{itemize}
+    \item Exact Match (Acc): For the short answer tasks, $G_a$ (Grounded Answer) and $G_r$ (Grounded Reasoning), we report the Exact Match (EM) accuracy.
+    \item BLEU4: For the long answer $G_o$ (Grounded Open-ended Answer) task, we report the BLEU4 score, which is more suitable for evaluating.
+\end{itemize}
+
+
+
+\noindent \textbf{Grounding Performance ($\text{F1}_{\text{all}}$)}:
+We use $\text{F1}_{\text{all}}$ score to measure grounding performance, which requires a simultaneous match in both text content and spatial location. Our implementation precisely follows the DOGR \cite{zhou2025dogr} definition.
+
+A predicted grounded span is counted as a True Positive (TP) if and only if it meets two conditions:
+\begin{itemize}
+    \item Spatial Match: The Intersection over Union (IoU) between the predicted bounding box and a ground truth bounding box is $\geq 0.5$.
+    \item Text Match: The cleaned text within the predicted span (using the same normalization process as above) exactly matches ground truth text.
+\end{itemize}
+
+\noindent This evaluation ensures that our results for \modelName\ and our fine tuned models are fairly comparable to the original DOGR baseline.
+
+
+
+
+\subsection{MMDocBench}
+\label{sec:dataset_mmdocbench}
+\textbf{MMDocBench} \cite{zhu2024mmdocbench} is a  multi-task benchmark covering 15 tasks and 48 sub-tasks across diverse document types (receipts, reports, tables, charts, research papers), each annotated with supporting bounding regions.
+
+\noindent Dataset Statistics: 
+\begin{itemize}
+    \item Images: 2,400  
+    \item QA Pairs: 4,338
+\end{itemize}
+
+\noindent\textbf{Evaluation Protocol:}  
+We follow the official evaluation with no modifications:
+\begin{itemize}
+    \item Text Accuracy: Exact Match (EM) and word-level F1 ($\text{F1}_{\text{txt}}$).
+    \item Grounding: Intersection-over-Union (IoU) against annotated supporting regions.
+\end{itemize}
+
+
+
+\subsection{\benchmarkName}
+\label{sec:benchmark}
+
+Existing document QA grounding benchmarks \cite{zhou2025dogr, zhu2024mmdocbench, giovannini2025boundingdocs} contain only bounding box grounding. Therefore, we introduce \textbf{\benchmarkName}, a segmentation based benchmark. We manually select document images from private sources as well as from the test sets of various public document datasets ~\cite{mathew2021docvqa, tanaka2021visualmrc, mathew2022infographicvqa, long2023icdar,yamaguchi2021canvasvae,larson-etal-2023-evaluation-rvlcdip,movie_posters_100k_controlnet, kondic2025chartgen, yang2025scaling, liu2024synchart}. Documents with  curved and skewed text are specifically included to enable robust geometric and structural evaluation. Apart from regular text-rich documents, we specifically include other popular document categories such as charts, reports, forms, tables, webpages and infographics for improved diversity.  
+We generate QA pairs using our data engine.  Each QA pair is annotated by both text geometry-straight (70\%) or curved (30\%) and span type (2,820 single-span and 2,180 multi-span instances). 
+The benchmark is manually curated and verified to ensure quality, and unbiased evaluation.
+
+\noindent Dataset Statistics: 
+\begin{itemize}
+    \item Total Images: $2.5K$
+    \item Total Q/A Pairs: $5K$
+    \item Span Type Split: 2,820 single-span (56.4\%) and 2,180 multi-span (43.6\%) QA Pairs.
+    \item Geometry Split: 70\% straight text and 30\% curved/skewed text.
+    \begin{itemize}
+        \item Of the 30\% curved Q/A pairs, 75\% are single-span and 25\% are multi-span.
+    \end{itemize}
+\end{itemize}
+
+% \begin{figure}[t]
+% \centering
+
+% \begin{minipage}{0.48\linewidth}
+%     \centering
+%     \includegraphics[width=\linewidth]{figs/supp/4.png}
+%     \caption*{(a) XP Pen}
+% \end{minipage}
+% \hfill
+% \begin{minipage}{0.48\linewidth}
+%     \centering
+%     \includegraphics[width=\linewidth]{figs/supp/1.png}
+%     \caption*{(b) Annotator }
+% \end{minipage}
+
+% \vspace{0.4em}
+
+% \begin{minipage}{0.48\linewidth}
+%     \centering
+%     \includegraphics[width=\linewidth]{figs/supp/2.png}
+%     \caption*{(c) Annotator}
+% \end{minipage}
+% \hfill
+% \begin{minipage}{0.48\linewidth}
+%     \centering
+%     \includegraphics[width=\linewidth]{figs/supp/3.png}
+%     \caption*{(d) Annotator}
+% \end{minipage}
+
+% \caption{ (a) We used XP Pen for verification of our \benchmarkName . (b,c,d) Annotators verifying samples for accurate ground truths}
+% \end{figure}
+
+\paragraph{Human Annotation \& Verification Process}
+
+
+To ensure fine grained  grounding and answer correctness, all annotations in \benchmarkName\ were validated by a team of 30 qualified human annotators. The annotators were intentionally recruited from diverse backgrounds including undergraduate students, office clerks, hospital staff, and front-desk operators to ensure diversity.
+
+\noindent Each annotator underwent a short training module covering mask-annotation protocol, span definitions, curved-text segmentation, and QA correctness criteria. All pixel-level masks, span labels, and QA pairs were curated using a multi-stage verification pipeline:
+
+\begin{itemize}
+    \item \textbf{Primary Verification:} Each document and its associated QA pair were first verified independently by one annotator, with segmentation performed using an XP-Pen tablet for high-precision boundary tracing.
+    \item \textbf{Secondary Human Verification:} A different annotator reviewed the masks and QA pair for correctness, checking for leakage, incorrect spans, missed curved segments, and ambiguity.
+\end{itemize}
+
+\noindent This human-in-the-loop pipeline ensured that GroundingDocQA Bench provides high-quality, human-verified, multi-granular mask annotations and reliable QA pairs.
+
+
+\noindent \textbf{Evaluation Protocol:}
+We evaluate our models at all three mask levels: phrase, line and block.  
+Since our benchmark contains different types of answer spans, we report four grounding metrics:
+
+\begin{itemize}
+    \item SS (Single-Span F1): F1 score computed on QA pairs that have only one grounded span. This measures how well the model can ground a single piece of text in the image.
+    \item MS (Multi-Span F1): F1 score computed on questions that require grounding two or more spans. This checks whether the model can find all required regions for multi-part answers.
+    \item CS (Curved-Skewed F1): F1 score on QA pairs that contain curved or skewed text. This shows the model’s ability to handle non-straight text which is common in posters, infographics and charts.
+    \item Overall $\text{F1}_{g}$: Overall grounding F1 across the full benchmark. This combines SS, MS and CS and gives one final grounding score.
+\end{itemize}
+
+For answer quality, we use \textbf{AQ} computed with G-Eval \cite{liu2023geval}. AQ measures if the predicted answer text is semantically correct when compared to the ground truth. This setup allows a clear comparison between models on different types of grounding difficulty.
+
+
+\section{Qualitative Results}
+\label{sec:qualitative}
+
+We provide qualitative results illustrating the behavior of \modelName\ across a variety of document types. 
+To organize the examples clearly, we divide them into two groups:
+(1) comparisons between our model and the next best performing model, and 
+(2) standalone outputs produced solely by \modelName{}.
+These examples span charts, financial documents, infographics, curved text, and layout-heavy pages.
+
+% ------------------------------------------------------------
+\subsection{Comparisons Against the Next Best Model}
+% ------------------------------------------------------------
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_1/Examples-ChartQA_8_81.pdf}
+    \caption{Comparison Example }
+    \label{fig:qual_1}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_1/Examples-CharXiv_8_22.pdf}
+    \caption{Comparison Example }
+    \label{fig:qual_1}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_1/Examples-CharXiv_8_73.pdf}
+    \caption{Comparison Example }
+    \label{fig:qual_2}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_1/Examples-CORD_5_25.pdf}
+    \caption{Comparison Example }
+    \label{fig:qual_3}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_1/Examples-DocVQA_7_33.pdf}
+    \caption{Comparison Example }
+    \label{fig:qual_4}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_1/Examples-InfographicVQA_9_60.pdf}
+    \caption{Comparison Example }
+    \label{fig:qual_5}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_1/Examples-TAT-DQA_7_144.pdf}
+    \caption{Comparison Example }
+    \label{fig:qual_6}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_1/Examples-Text2Bbox_PubTabNet_2_94.pdf}
+    \caption{Comparison Example }
+    \label{fig:qual_7}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_1/Examples-WTQ_7_81.pdf}
+    \caption{Comparison Example }
+    \label{fig:qual_8}
+\end{figure}
+
+% ------------------------------------------------------------
+\subsection{Standalone Predictions from \modelName{}}
+% ------------------------------------------------------------
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_2/Examples-Finance.pdf}
+    \caption{Qualitative Example}
+    \label{fig:qual_9}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_2/Examples-Harley Davidson.pdf}
+    \caption{Qualitative Example }
+    \label{fig:qual_10}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_2/Examples-Healthcare.pdf}
+    \caption{Qualitative Example }
+    \label{fig:qual_11}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_2/Examples-Legal.pdf}
+    \caption{Qualitative Example }
+    \label{fig:qual_12}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_2/Examples-Mohali Map.pdf}
+    \caption{Qualitative Example}
+    \label{fig:qual_14}
+\end{figure}
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_2/Examples-PopEye.pdf}
+    \caption{Qualitative Example }
+    \label{fig:qual_16}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth, height=0.9\textheight, keepaspectratio]{figs/supp/qual_2/Examples-Transcript.pdf}
+    \caption{Qualitative Example }
+    \label{fig:qual_16}
+\end{figure}
+
+\noindent
+Overall, these qualitative examples demonstrate that segmentation-based hierarchical grounding yields higher spatial fidelity and more reliable multi-span coverage than bounding-box-based approaches, particularly on visually complex document types.
+
+
+% --------------------------------------
+
+
+
+\section{Miscellaneous}
+\noindent \textbf{Other Baselines}
+
+Natural image segmentation models transfer poorly to document grounding QA \cite{zhou2025dogr}
+To assess this, we evaluate two segmentation models: LISA++~\cite{yang2023lisa++} and GLaMM~\cite{rasheed2024glamm}. We test these models on the same set of benchmarks used in the main paper: BoundingDocs (Test)~\cite{giovannini2025boundingdocs}, DOGR-Bench~\cite{zhou2025dogr}, MMDocBench~\cite{zhu2024mmdocbench}, and \benchmarkName (ours). 
+\input{tables/supp/other_baselines}
+
+\noindent Based on the scores we can conclude that these models are not optimized for grounding document question answering.\\
+
+
+
+\noindent \textbf{Removing Repeated Samples\\}
+To ensure the integrity of \datasetName\ and prevent data leakage, we implemented a deduplication pipeline at both the document and question levels. Since our data engine aggregates images from multiple public datasets, ensuring uniqueness is important to avoid any kind of overlap and redundancy.
+
+\noindent \textit{Document Samples Filtering:}
+\begin{itemize}
+     \item {Text-Rich Documents:} We utilized the Fid-HTML representations generated by the REPLICA engine~\cite{replica2025}. By hashing the normalized HTML structure, we created a unique signature for each document layout.
+     \item {Charts:} We utilized the underlying metadata JSON. We computed hash signatures based on the semantic content (titles, labels, data values) rather than the rendered pixels.
+\end{itemize}
+These structural signatures were cross-referenced both internally (to ensure pairwise uniqueness within our collection) and externally against the test splits of existing benchmarks (DOGR~\cite{zhou2025dogr}, MMDocBench~\cite{zhu2024mmdocbench}, BoundingDocs~\cite{giovannini2025boundingdocs}) to strictly prevent data leakage.
+
+\noindent \textit{QA-Level Filtering:}
+Within a document, we further filtered to ensure there is no spatial redundancy. To prevent artificial inflation of grounding scores, we identified and removed QA pairs that referenced identical grounding masks. This ensures that the model is evaluated on its ability to localize diverse regions rather than repeatedly predicting the same element.
+\\
+\noindent \textbf{DOGR Model \\}
+We utilize the scores reported in the original DOGR paper~\cite{zhou2025dogr}. As our attempts to conduct local inference using the official codebase~\cite{zhou2025dogr_repo} were constrained by specific dependencies. The available implementation appears optimized for NPU setup, which resulted in compatibility challenges within our GPU setup, particularly for vision encoder checkpoints and tensor shape alignment. Attempts made to solve these issues were unsuccessful~\cite{zhou2025dogr_repo}. To avoid misrepresenting the model's capabilities due to these issues, we cite the authors' original numbers. 
+(\url{https://github.com/Tencent/DOGR/issues})
+
+
