@@ -1,0 +1,10 @@
+predictor,beta,SE,p,sig
+Intercept,33.1297,2.5577,0.0,***
+"C(depression_group, Treatment('Minimal'))[T.Mild]",-3.6596,1.551,0.0193,*
+"C(depression_group, Treatment('Minimal'))[T.Moderate-Severe]",-2.5471,1.9601,0.1953,ns
+"C(video, Treatment('V1'))[T.V2]",-3.0498,1.9481,0.1191,ns
+"C(video, Treatment('V1'))[T.V3]",-1.4652,1.9481,0.4529,ns
+"C(video, Treatment('V1'))[T.V4]",-13.2718,1.9481,0.0,***
+"C(video, Treatment('V1'))[T.V5]",-5.2453,1.9481,0.0077,**
+score_gad,0.3442,0.2068,0.0977,†
+score_stai_t,-0.0456,0.0625,0.4661,ns

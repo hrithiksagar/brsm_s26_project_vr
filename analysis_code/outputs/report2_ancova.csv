@@ -1,0 +1,6 @@
+video,video_name,N,R2_cov_only,R2_full,delta_R2_group,F,df_model,df_resid,p,adj_mean_Minimal,adj_mean_Mild,adj_mean_Moderate_Severe
+V1,Abandoned Buildings,40,0.0097,0.0531,0.0434,0.4902,4,35,0.7428,33.345,29.382,28.518
+V2,Evening at Beach,40,0.0103,0.0413,0.031,0.3771,4,35,0.8234,27.905,26.769,30.787
+V3,Campus,40,0.0341,0.0921,0.058,0.8878,4,35,0.4814,32.287,28.259,25.52
+V4,The Nun (Horror),40,0.0425,0.0889,0.0464,0.8537,4,35,0.5012,18.526,15.402,20.177
+V5,Tahiti Surf,40,0.0099,0.0796,0.0697,0.7566,4,35,0.5605,28.895,22.847,23.22

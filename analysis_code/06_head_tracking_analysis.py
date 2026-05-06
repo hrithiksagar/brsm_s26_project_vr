@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from scipy import stats
 
-from config import (DATA_PATH, OUTPUT_DIR, HEADTRACK_DIR,
+from config import (DATA_PATH, OUTPUT_DIR, CSV_DIR,
                     GROUP_ORDER, GROUP_COLORS, VIDEO_NAMES, VIDEO_COLORS,
                     CSV_TIME_COL, CSV_YAW_SPEED, CSV_TOTAL_SPEED, CSV_PITCH_SPEED)
 
@@ -105,9 +105,9 @@ for _, row in df.iterrows():
     for v in range(1, 6):
         csv_name = row[f"v{v}"]
         # Try sub-folder structure first, then flat fallback
-        path = os.path.join(HEADTRACK_DIR, f"v{v}", csv_name)
+        path = os.path.join(CSV_DIR, f"v{v}", csv_name)
         if not os.path.exists(path):
-            path = os.path.join(HEADTRACK_DIR, csv_name)
+            path = os.path.join(CSV_DIR, csv_name)
 
         m = compute_metrics(path) if os.path.exists(path) else None
         for k in METRIC_KEYS:

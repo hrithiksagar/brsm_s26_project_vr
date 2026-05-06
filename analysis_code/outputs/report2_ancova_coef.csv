@@ -1,0 +1,26 @@
+video,predictor,beta,SE,p,sig
+V1,Intercept,31.761,5.1832,0.0,***
+V1,"C(group, Treatment('Minimal'))[T.Mild]",-3.9625,3.5867,0.2768,ns
+V1,"C(group, Treatment('Minimal'))[T.Moderate-Severe]",-4.8272,4.5326,0.2942,ns
+V1,gad,0.4113,0.4782,0.3956,ns
+V1,stai,-0.0105,0.1444,0.9425,ns
+V2,Intercept,27.5919,4.5982,0.0,***
+V2,"C(group, Treatment('Minimal'))[T.Mild]",-1.1357,3.1819,0.7233,ns
+V2,"C(group, Treatment('Minimal'))[T.Moderate-Severe]",2.8818,4.021,0.4783,ns
+V2,gad,-0.2832,0.4242,0.5088,ns
+V2,stai,0.0384,0.1281,0.7661,ns
+V3,Intercept,31.7784,5.4309,0.0,***
+V3,"C(group, Treatment('Minimal'))[T.Mild]",-4.0278,3.7581,0.2912,ns
+V3,"C(group, Treatment('Minimal'))[T.Moderate-Severe]",-6.7668,4.7493,0.1631,ns
+V3,gad,0.7144,0.5011,0.1628,ns
+V3,stai,-0.0681,0.1513,0.6556,ns
+V4,Intercept,23.2876,4.8008,0.0,***
+V4,"C(group, Treatment('Minimal'))[T.Mild]",-3.1242,3.3221,0.3534,ns
+V4,"C(group, Treatment('Minimal'))[T.Moderate-Severe]",1.6511,4.1983,0.6965,ns
+V4,gad,0.5005,0.4429,0.2662,ns
+V4,stai,-0.1614,0.1338,0.2357,ns
+V5,Intercept,28.1979,5.6168,0.0,***
+V5,"C(group, Treatment('Minimal'))[T.Mild]",-6.0481,3.8868,0.1287,ns
+V5,"C(group, Treatment('Minimal'))[T.Moderate-Severe]",-5.6743,4.9118,0.2558,ns
+V5,gad,0.3779,0.5182,0.4707,ns
+V5,stai,-0.0265,0.1565,0.8665,ns
